@@ -4,3 +4,5 @@ dist/
 output/
 data/
 .DS_Store
+.Rhistory
+*.local.md
