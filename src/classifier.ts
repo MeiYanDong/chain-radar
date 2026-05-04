@@ -1,13 +1,13 @@
 import { decodeEventLog, parseAbiItem } from 'viem';
 import { client, getBlockTimestamp, retryOnRateLimit } from './rpc.js';
 import {
-  PAIR_POOL,
   FROUTER_V3,
   VIRTUAL_TOKEN,
-  KNOWN_CONTRACTS,
   TAX_RATE,
   DECIMALS,
+  getKnownContracts,
 } from './config.js';
+import type { TokenConfig } from './config.js';
 import type { TransferEvent, ClassifiedTx } from './types.js';
 
 const transferEventAbi = parseAbiItem(
@@ -15,7 +15,6 @@ const transferEventAbi = parseAbiItem(
 );
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-const pairPool = PAIR_POOL.toLowerCase();
 const router = FROUTER_V3.toLowerCase();
 const virtualToken = VIRTUAL_TOKEN.toLowerCase();
 
@@ -24,20 +23,24 @@ function toFloat(amount: bigint): number {
 }
 
 interface TxGroup {
-  fatTransfers: TransferEvent[];
+  transfers: TransferEvent[];
   blockNumber: bigint;
 }
 
 export async function classifyTransactions(
-  fatTransfers: TransferEvent[]
+  transfers: TransferEvent[],
+  token: TokenConfig
 ): Promise<ClassifiedTx[]> {
+  const pairPool = token.pairPool.toLowerCase();
+  const knownContracts = getKnownContracts(token);
+
   const txGroups = new Map<string, TxGroup>();
-  for (const evt of fatTransfers) {
+  for (const evt of transfers) {
     const key = evt.txHash;
     if (!txGroups.has(key)) {
-      txGroups.set(key, { fatTransfers: [], blockNumber: evt.blockNumber });
+      txGroups.set(key, { transfers: [], blockNumber: evt.blockNumber });
     }
-    txGroups.get(key)!.fatTransfers.push(evt);
+    txGroups.get(key)!.transfers.push(evt);
   }
 
   const results: ClassifiedTx[] = [];
@@ -51,7 +54,7 @@ export async function classifyTransactions(
     const batchResults = await Promise.all(
       batch.map(async (txHash) => {
         const group = txGroups.get(txHash)!;
-        return classifyTxGroup(txHash as `0x${string}`, group);
+        return classifyTxGroup(txHash as `0x${string}`, group, pairPool, knownContracts);
       })
     );
 
@@ -61,7 +64,7 @@ export async function classifyTransactions(
 
     processed += batch.length;
     process.stdout.write(
-      `\r  Classifying: ${processed}/${txHashes.length} transactions`
+      `\r  [${token.symbol}] Classifying: ${processed}/${txHashes.length} transactions`
     );
 
     if (i + batchSize < txHashes.length) {
@@ -80,12 +83,14 @@ export async function classifyTransactions(
 
 async function classifyTxGroup(
   txHash: `0x${string}`,
-  group: TxGroup
+  group: TxGroup,
+  pairPool: string,
+  knownContracts: Set<string>
 ): Promise<ClassifiedTx[]> {
   const results: ClassifiedTx[] = [];
   const timestamp = await getBlockTimestamp(group.blockNumber);
 
-  const hasPairInteraction = group.fatTransfers.some(
+  const hasPairInteraction = group.transfers.some(
     (t) => t.from === pairPool || t.to === pairPool
   );
 
@@ -94,73 +99,53 @@ async function classifyTxGroup(
     try {
       virtualTransfers = await getVirtualTransfersFromReceipt(txHash);
     } catch {
-      // receipt fetch failed, proceed without VIRTUAL data
+      // receipt fetch failed
     }
 
-    for (const fat of group.fatTransfers) {
-      if (fat.from === ZERO_ADDRESS || fat.to === ZERO_ADDRESS) continue;
+    for (const t of group.transfers) {
+      if (t.from === ZERO_ADDRESS || t.to === ZERO_ADDRESS) continue;
 
-      if (fat.from === pairPool && !KNOWN_CONTRACTS.has(fat.to)) {
-        // BUY: FAT flows from pair pool to user
+      if (t.from === pairPool && !knownContracts.has(t.to)) {
         const taxTransfer = virtualTransfers.find(
-          (v) => v.to === router && v.from === fat.to
+          (v) => v.to === router && v.from === t.to
         );
         let virtualPaid = 0;
         if (taxTransfer) {
           virtualPaid = toFloat(taxTransfer.amount) / TAX_RATE;
         } else {
           const toPool = virtualTransfers.find(
-            (v) => v.to === pairPool && v.from === fat.to
+            (v) => v.to === pairPool && v.from === t.to
           );
           if (toPool) virtualPaid = toFloat(toPool.amount) / (1 - TAX_RATE);
         }
 
         results.push({
-          txHash,
-          blockNumber: group.blockNumber,
-          timestamp,
-          type: 'BUY',
-          user: fat.to,
-          counterparty: fat.from,
-          fatAmount: fat.amount,
-          virtualAmount: virtualPaid,
-          usdAmount: 0,
+          txHash, blockNumber: group.blockNumber, timestamp,
+          type: 'BUY', user: t.to, counterparty: t.from,
+          fatAmount: t.amount, virtualAmount: virtualPaid, usdAmount: 0,
         });
-      } else if (fat.to === pairPool && !KNOWN_CONTRACTS.has(fat.from)) {
-        // SELL: FAT flows from user to pair pool
+      } else if (t.to === pairPool && !knownContracts.has(t.from)) {
         const fromPool = virtualTransfers.find(
-          (v) => v.from === pairPool && v.to === fat.from
+          (v) => v.from === pairPool && v.to === t.from
         );
         const virtualReceived = fromPool ? toFloat(fromPool.amount) : 0;
 
         results.push({
-          txHash,
-          blockNumber: group.blockNumber,
-          timestamp,
-          type: 'SELL',
-          user: fat.from,
-          counterparty: fat.to,
-          fatAmount: fat.amount,
-          virtualAmount: virtualReceived,
-          usdAmount: 0,
+          txHash, blockNumber: group.blockNumber, timestamp,
+          type: 'SELL', user: t.from, counterparty: t.to,
+          fatAmount: t.amount, virtualAmount: virtualReceived, usdAmount: 0,
         });
       }
     }
   } else {
-    for (const fat of group.fatTransfers) {
-      if (fat.from === ZERO_ADDRESS || fat.to === ZERO_ADDRESS) continue;
-      if (KNOWN_CONTRACTS.has(fat.from) || KNOWN_CONTRACTS.has(fat.to)) continue;
+    for (const t of group.transfers) {
+      if (t.from === ZERO_ADDRESS || t.to === ZERO_ADDRESS) continue;
+      if (knownContracts.has(t.from) || knownContracts.has(t.to)) continue;
 
       results.push({
-        txHash,
-        blockNumber: group.blockNumber,
-        timestamp,
-        type: 'TRANSFER',
-        user: fat.to,
-        counterparty: fat.from,
-        fatAmount: fat.amount,
-        virtualAmount: 0,
-        usdAmount: 0,
+        txHash, blockNumber: group.blockNumber, timestamp,
+        type: 'TRANSFER', user: t.to, counterparty: t.from,
+        fatAmount: t.amount, virtualAmount: 0, usdAmount: 0,
       });
     }
   }
@@ -185,10 +170,8 @@ async function getVirtualTransfersFromReceipt(
         topics: log.topics,
       });
       results.push({
-        txHash,
-        blockNumber: receipt.blockNumber,
-        logIndex: log.logIndex,
-        token: 'VIRTUAL',
+        txHash, blockNumber: receipt.blockNumber,
+        logIndex: log.logIndex, token: 'VIRTUAL',
         from: (args as any).from.toLowerCase() as `0x${string}`,
         to: (args as any).to.toLowerCase() as `0x${string}`,
         amount: (args as any).value,

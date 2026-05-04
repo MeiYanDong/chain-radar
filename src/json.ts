@@ -1,5 +1,6 @@
 import { writeFileSync, mkdirSync } from 'fs';
 import { DECIMALS } from './config.js';
+import type { TokenConfig } from './config.js';
 import type { ClassifiedTx, HolderPosition } from './types.js';
 
 function toFloat(amount: bigint): number {
@@ -12,13 +13,13 @@ export interface SummaryStats {
   totalBuys: number;
   totalSells: number;
   totalTransfers: number;
-  currentFatPriceUsd: number;
+  currentTokenPriceUsd: number;
   currentVirtualPriceUsd: number;
 }
 
 export function writeHoldersJson(
   holders: Map<string, HolderPosition>,
-  currentFatPriceUsd: number,
+  currentTokenPriceUsd: number,
   outputPath: string
 ): void {
   mkdirSync('output', { recursive: true });
@@ -29,7 +30,7 @@ export function writeHoldersJson(
 
   const data = sorted.map((h, i) => {
     const balance = toFloat(h.balance);
-    const currentValue = balance * currentFatPriceUsd;
+    const currentValue = balance * currentTokenPriceUsd;
     const avgCostPerToken = balance > 0 ? h.totalCostUsd / balance : 0;
     return {
       rank: i + 1,
@@ -74,11 +75,12 @@ export function writeTransactionsJson(
 
 export function writeSummaryJson(
   stats: SummaryStats,
+  token: TokenConfig,
   outputPath: string
 ): void {
   const data = {
-    tokenName: 'FAT',
-    tokenAddress: '0x3781934F9CC3B5157EAb5F663B144103409CFfFB',
+    tokenName: token.symbol,
+    tokenAddress: token.tokenAddress,
     chain: 'Base',
     ...stats,
     analyzedAt: new Date().toISOString(),

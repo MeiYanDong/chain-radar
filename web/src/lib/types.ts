@@ -35,7 +35,7 @@ export interface Summary {
   totalBuys: number;
   totalSells: number;
   totalTransfers: number;
-  currentFatPriceUsd: number;
+  currentTokenPriceUsd: number;
   currentVirtualPriceUsd: number;
   analyzedAt: string;
 }

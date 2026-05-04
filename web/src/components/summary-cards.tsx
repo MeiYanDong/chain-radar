@@ -7,7 +7,7 @@ import type { Summary } from '@/lib/types';
 export function SummaryCards({ summary }: { summary: Summary }) {
   const cards = [
     { label: 'Active Holders', value: formatNumber(summary.activeHolders, 0) },
-    { label: 'FAT Price', value: formatUsd(summary.currentFatPriceUsd) },
+    { label: 'Token Price', value: formatUsd(summary.currentTokenPriceUsd) },
     { label: 'Total Buys', value: formatNumber(summary.totalBuys, 0) },
     { label: 'Total Sells', value: formatNumber(summary.totalSells, 0) },
   ];

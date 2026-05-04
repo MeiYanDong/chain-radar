@@ -8,7 +8,7 @@ function toFloat(amount: bigint): number {
 
 export function writeCsv(
   holders: Map<string, HolderPosition>,
-  currentFatPriceUsd: number,
+  currentTokenPriceUsd: number,
   outputPath: string
 ): void {
   mkdirSync('output', { recursive: true });
@@ -27,7 +27,7 @@ export function writeCsv(
     const bought = toFloat(h.totalBought);
     const sold = toFloat(h.totalSold);
     const avgCost = balance > 0 ? h.totalCostUsd / balance : 0;
-    const currentValue = balance * currentFatPriceUsd;
+    const currentValue = balance * currentTokenPriceUsd;
     const pnl = currentValue - h.totalCostUsd;
 
     rows.push(

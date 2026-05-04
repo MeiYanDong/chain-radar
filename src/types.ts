@@ -2,7 +2,7 @@ export interface TransferEvent {
   txHash: `0x${string}`;
   blockNumber: bigint;
   logIndex: number;
-  token: 'FAT' | 'VIRTUAL';
+  token: string;
   from: `0x${string}`;
   to: `0x${string}`;
   amount: bigint;
