@@ -23,6 +23,7 @@ try {
     getLatestAutoSellExecutions,
     saveAutoSellExecution,
     saveBuybackEvent,
+    updateAutoSellExecutionReceipt,
   } = await import('./db.js');
   const { buildAutoSellReadinessReport, executeAutoSell, __autoSellTest } = await import('./autoSell.js');
   const { __watcherTest } = await import('./watcher.js');
@@ -76,6 +77,18 @@ try {
   assert.equal(executions.length, 1, 'execution should upsert by trigger tx and token');
   assert.equal(executions[0].status, 'failed');
   assert.equal(executions[0].error, 'allowance too low');
+
+  updateAutoSellExecutionReceipt(
+    '0xtrigger000000000000000000000000000000000000000000000000000000000001',
+    '0x39DBF1E2BCE3509B51876D526489D1EC606B3A77',
+    'reverted',
+    { status: 'failed', error: 'sell receipt status=reverted' },
+    1_777_300_003_000,
+  );
+  executions = getLatestAutoSellExecutions();
+  assert.equal(executions[0].sell_receipt_status, 'reverted');
+  assert.equal(executions[0].status, 'failed');
+  assert.equal(executions[0].error, 'sell receipt status=reverted');
 
   const report = await buildAutoSellReadinessReport({ checkNetwork: false });
   assert.equal(report.ok, false);

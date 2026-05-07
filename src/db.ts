@@ -1046,6 +1046,32 @@ export function saveAutoSellExecution(record: AutoSellExecutionRecord, nowMs = D
   );
 }
 
+export function updateAutoSellExecutionReceipt(
+  triggerTxHash: string,
+  tokenAddress: string,
+  receiptStatus: string,
+  update?: { status?: string; error?: string | null },
+  nowMs = Date.now(),
+): number {
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE auto_sell_executions
+    SET sell_receipt_status = ?,
+        status = COALESCE(?, status),
+        error = COALESCE(?, error),
+        updated_at = ?
+    WHERE trigger_tx_hash = ? AND token_address = ?
+  `).run(
+    receiptStatus,
+    update?.status ?? null,
+    update?.error === undefined ? null : update.error?.slice(0, 500) ?? null,
+    nowMs,
+    triggerTxHash,
+    tokenAddress.toLowerCase(),
+  );
+  return result.changes;
+}
+
 export function getLatestAutoSellExecutions(limit = 20): AutoSellExecutionRecord[] {
   const db = getDb();
   return db.prepare(`

@@ -1,37 +1,36 @@
 import {
-  createPublicClient,
-  createWalletClient,
-  encodeFunctionData,
   erc20Abi,
   formatUnits,
-  http,
   isAddress,
-  maxUint256,
-  parseAbi,
   parseGwei,
   parseUnits,
   type Address,
   type Hash,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { base } from 'viem/chains';
-
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-const DEFAULT_MARKET_ADDRESS = '0x1A540088125d00dD3990f9dA45CA0859af4d3B01' as const;
-const BASE_FLASHBLOCKS_RPC = 'https://mainnet-preconf.base.org';
-
-const SELL_ABI = parseAbi([
-  'function sell(uint256 amountIn,address tokenAddress,uint256 amountOutMin,uint256 deadline) returns (bool)',
-  'function getAmountsOut(address tokenAddress,address assetToken,uint256 amountIn) view returns (uint256)',
-]);
+import {
+  DIRECT_SELL_DEFAULT_MARKET_ADDRESS,
+  buildDirectSellQuoteRead,
+} from './onchain-exit-engine/directSellTransaction.js';
+import { submitDirectSellWithFallback } from './onchain-exit-engine/directSellSubmission.js';
+import { buildExitEngineConfigFromEnv, type ExitEngineConfig } from './onchain-exit-engine/configSchema.js';
+import {
+  BASE_DIRECT_SELL_FLASHBLOCKS_RPC,
+  buildDirectSellBroadcastBundles,
+  createDirectSellRpcBundle,
+  directSellRpcCacheKey,
+  readFast,
+  resolveDirectSellRpcUrls,
+  submitDirectSellMultiRpcRaw,
+  submitErc20ApproveRpc,
+  submitDirectSellPrimaryRpc,
+  type DirectSellGasOptions,
+  type DirectSellRpcBundle,
+} from './onchain-exit-engine/rpcRuntime.js';
 
 type Account = ReturnType<typeof privateKeyToAccount>;
-type RpcBundle = ReturnType<typeof createRpcBundle>;
-type SellGasOptions = {
-  gas?: bigint;
-  maxFeePerGas?: bigint;
-  maxPriorityFeePerGas?: bigint;
-};
+type RpcBundle = DirectSellRpcBundle;
+type SellGasOptions = DirectSellGasOptions;
 
 const tokenDecimalsCache = new Map<string, number>();
 let cachedAccount: Account | null = null;
@@ -106,21 +105,8 @@ export interface AutoSellReadinessOptions {
   requireLive?: boolean;
 }
 
-function parseNumberEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function parseBigIntEnv(name: string, fallback: bigint): bigint {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  try {
-    return BigInt(raw.trim());
-  } catch {
-    return fallback;
-  }
+function currentExitEngineConfig(): ExitEngineConfig {
+  return buildExitEngineConfigFromEnv(process.env);
 }
 
 function clampInt(value: number, min: number, max: number): number {
@@ -146,28 +132,15 @@ function shortError(err: unknown): string {
 }
 
 function rpcUrls(): string[] {
-  const urls = [
-    process.env.RPC_URL || 'https://mainnet.base.org',
-    ...(process.env.RPC_URL_FALLBACKS ?? '').split(','),
-  ]
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return [...new Set(urls)];
-}
-
-function listEnv(name: string): string[] {
-  return (process.env[name] ?? '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
-function symbolSetEnv(name: string): Set<string> {
-  return new Set(listEnv(name).map((value) => value.toUpperCase()));
+  const config = currentExitEngineConfig();
+  return resolveDirectSellRpcUrls({
+    primaryRpcUrl: config.rpc.primaryUrl,
+    fallbackRpcUrls: config.rpc.fallbackUrls.join(','),
+  });
 }
 
 function rpcCacheKey(account: Account): string {
-  return `${account.address}:${rpcUrls().join('|')}`;
+  return directSellRpcCacheKey(account.address, rpcUrls());
 }
 
 function getAccount(rawKey: string): Account {
@@ -176,52 +149,37 @@ function getAccount(rawKey: string): Account {
   return cachedAccount;
 }
 
-function createRpcBundle(account: Account, url: string) {
-  const readTimeout = Math.max(100, Math.round(parseNumberEnv('AUTO_SELL_READ_TIMEOUT_MS', 1200)));
-  const writeTimeout = Math.max(300, Math.round(parseNumberEnv('AUTO_SELL_WRITE_TIMEOUT_MS', 1800)));
+function rpcRuntimeOptions() {
+  const config = currentExitEngineConfig();
   return {
-    url,
-    publicClient: createPublicClient({
-      chain: base,
-      transport: http(url, { retryCount: 0, timeout: readTimeout }),
-    }),
-    walletClient: createWalletClient({
-      account,
-      chain: base,
-      transport: http(url, { retryCount: 0, timeout: writeTimeout }),
-    }),
+    readTimeoutMs: config.rpc.readTimeoutMs,
+    writeTimeoutMs: config.rpc.writeTimeoutMs,
   };
 }
 
 function getRpcBundles(account: Account): RpcBundle[] {
   const key = rpcCacheKey(account);
   if (cachedBundlesKey === key && cachedBundles.length > 0) return cachedBundles;
-  cachedBundles = rpcUrls().map((url) => createRpcBundle(account, url));
+  const options = rpcRuntimeOptions();
+  cachedBundles = rpcUrls().map((url) => createDirectSellRpcBundle(account, url, options));
   cachedBundlesKey = key;
   return cachedBundles;
 }
 
-async function readFast<T>(bundles: RpcBundle[], read: (client: RpcBundle['publicClient']) => Promise<T>): Promise<T> {
-  if (bundles.length === 1) return read(bundles[0].publicClient);
-  return Promise.any(bundles.map((bundle) => read(bundle.publicClient)));
-}
-
 function autoSellSubmitMode(): 'primary' | 'multi-rpc' {
-  return (process.env.AUTO_SELL_SUBMIT_MODE ?? 'primary').toLowerCase() === 'multi-rpc'
-    ? 'multi-rpc'
-    : 'primary';
+  return currentExitEngineConfig().execution.submitMode;
 }
 
 function autoSellBurstTarget(): number {
-  return clampInt(parseNumberEnv('AUTO_SELL_BURST_TARGET', 3), 1, 20);
+  return currentExitEngineConfig().execution.burstTarget;
 }
 
 function tokenPendingLockEnabled(): boolean {
-  return process.env.AUTO_SELL_TOKEN_PENDING_LOCK !== '0';
+  return currentExitEngineConfig().execution.tokenPendingLock;
 }
 
 function tokenPendingTtlMs(): number {
-  return Math.max(10_000, Math.round(parseNumberEnv('AUTO_SELL_TOKEN_PENDING_TTL_MS', 180_000)));
+  return currentExitEngineConfig().execution.tokenPendingTtlMs;
 }
 
 function cleanupExpiredTokenSellLocks(nowMs = Date.now()) {
@@ -315,34 +273,27 @@ function resetNonceState(account?: Account) {
 }
 
 function primaryFallbackEnabled(): boolean {
-  const explicit = process.env.AUTO_SELL_PRIMARY_FALLBACK_ENABLED;
-  if (explicit === '1') return true;
-  if (explicit === '0') return false;
-  return process.env.AUTO_SELL_PUBLIC_BROADCAST_ENABLED !== '0';
+  return currentExitEngineConfig().execution.primaryFallbackEnabled;
 }
 
 function sellGasLimit(): bigint {
-  return parseBigIntEnv('AUTO_SELL_SELL_GAS_LIMIT', 0n);
+  return currentExitEngineConfig().risk.sellGasLimit ?? 0n;
 }
 
 function autoSellFeeMode(): 'fixed' | 'dynamic' {
-  return (process.env.AUTO_SELL_FEE_MODE ?? 'fixed').toLowerCase() === 'dynamic' ? 'dynamic' : 'fixed';
+  return currentExitEngineConfig().risk.feeMode;
 }
 
 function autoSellMinOutMode(): 'zero' | 'quote' | 'quote-required' | 'reference' | 'quote-reference' {
-  const value = (process.env.AUTO_SELL_MIN_OUT_MODE ?? 'zero').toLowerCase();
-  if (value === 'quote-required') return 'quote-required';
-  if (value === 'reference') return 'reference';
-  if (value === 'quote-reference') return 'quote-reference';
-  return value === 'quote' ? 'quote' : 'zero';
+  return currentExitEngineConfig().risk.minOutMode;
 }
 
 function requireNonzeroMinOut(): boolean {
-  return process.env.AUTO_SELL_REQUIRE_NONZERO_MIN_OUT === '1' || autoSellMinOutMode() === 'quote-required';
+  return currentExitEngineConfig().risk.requireNonzeroMinOut;
 }
 
 function slippageBps(): number {
-  return Math.max(0, Math.min(10_000, Math.floor(parseNumberEnv('AUTO_SELL_SLIPPAGE_BPS', 800))));
+  return currentExitEngineConfig().risk.slippageBps;
 }
 
 function gweiToWei(value: number): bigint {
@@ -361,8 +312,9 @@ function capWei(value: bigint, capGwei: number): bigint {
 }
 
 function configuredFixedGasOptions(): SellGasOptions {
-  const minPriorityGwei = parseNumberEnv('AUTO_SELL_MIN_PRIORITY_GWEI', 0.01);
-  const maxFeeGwei = parseNumberEnv('AUTO_SELL_MAX_FEE_GWEI', 0);
+  const config = currentExitEngineConfig();
+  const minPriorityGwei = config.risk.minPriorityGwei;
+  const maxFeeGwei = config.risk.maxFeeGwei ?? 0;
   const gas = sellGasLimit();
   return {
     ...(maxFeeGwei > 0 ? { maxFeePerGas: parseGwei(String(maxFeeGwei)) } : {}),
@@ -372,15 +324,16 @@ function configuredFixedGasOptions(): SellGasOptions {
 }
 
 async function dynamicGasOptions(bundles: RpcBundle[]): Promise<SellGasOptions> {
+  const config = currentExitEngineConfig();
   const gas = sellGasLimit();
   const fees = await readFast(bundles, async (client) => (
     await client.estimateFeesPerGas()
   )) as { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint };
-  const minPriority = gweiToWei(parseNumberEnv('AUTO_SELL_MIN_PRIORITY_GWEI', 0.1));
-  const priorityMultiplier = parseNumberEnv('AUTO_SELL_PRIORITY_FEE_MULTIPLIER', 2);
-  const maxFeeMultiplier = parseNumberEnv('AUTO_SELL_MAX_FEE_MULTIPLIER', 1.5);
-  const priorityCapGwei = parseNumberEnv('AUTO_SELL_MAX_PRIORITY_FEE_GWEI', 0);
-  const maxFeeCapGwei = parseNumberEnv('AUTO_SELL_MAX_FEE_GWEI', 0);
+  const minPriority = gweiToWei(config.risk.minPriorityGwei);
+  const priorityMultiplier = config.risk.priorityFeeMultiplier;
+  const maxFeeMultiplier = config.risk.maxFeeMultiplier;
+  const priorityCapGwei = config.risk.maxPriorityFeeGwei ?? 0;
+  const maxFeeCapGwei = config.risk.maxFeeGwei ?? 0;
   const estimatedPriority = fees.maxPriorityFeePerGas ?? 0n;
   let maxPriorityFeePerGas = multiplyWei(estimatedPriority > minPriority ? estimatedPriority : minPriority, priorityMultiplier);
   maxPriorityFeePerGas = capWei(maxPriorityFeePerGas, priorityCapGwei);
@@ -438,13 +391,7 @@ async function submitSellPrimary(
   },
 ): Promise<Hash> {
   const gasOptions = await gasOptionsForSell(bundles);
-  return primary.walletClient.writeContract({
-    address: input.marketAddress,
-    abi: SELL_ABI,
-    functionName: 'sell',
-    args: [input.amountIn, input.tokenAddress, input.amountOutMin, input.deadline],
-    ...gasOptions,
-  });
+  return submitDirectSellPrimaryRpc(primary, input, gasOptions);
 }
 
 async function submitSellMultiRpc(
@@ -459,30 +406,16 @@ async function submitSellMultiRpc(
     deadline: bigint;
   },
 ): Promise<{ sellTxHash: Hash; nonce: number }> {
-  if (submitBundles.length === 0) throw new Error('multi-rpc submit requires at least 1 broadcast endpoint');
   const gasOptions = await multiRpcGasOptions(readBundles);
-  const data = encodeFunctionData({
-    abi: SELL_ABI,
-    functionName: 'sell',
-    args: [input.amountIn, input.tokenAddress, input.amountOutMin, input.deadline],
-  });
   const nonce = await reserveSellNonce(readBundles, account);
-  const signed = await account.signTransaction({
-    chainId: base.id,
-    type: 'eip1559',
-    to: input.marketAddress,
-    data,
-    value: 0n,
-    nonce,
-    gas: gasOptions.gas,
-    maxFeePerGas: gasOptions.maxFeePerGas,
-    maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
-  });
   try {
-    return {
-      sellTxHash: await Promise.any(submitBundles.map((bundle) => bundle.publicClient.sendRawTransaction({ serializedTransaction: signed }))),
+    return await submitDirectSellMultiRpcRaw({
+      account,
+      submitBundles,
+      sellInput: input,
+      gasOptions,
       nonce,
-    };
+    });
   } catch (err) {
     resetNonceState(account);
     throw err;
@@ -490,20 +423,14 @@ async function submitSellMultiRpc(
 }
 
 function broadcastBundles(account: Account, publicBundles: RpcBundle[]): RpcBundle[] {
-  const publicByUrl = new Map(publicBundles.map((bundle) => [bundle.url, bundle]));
-  const urls = [
-    ...listEnv('AUTO_SELL_PROTECTED_RPC_URLS'),
-    ...(process.env.AUTO_SELL_FLASHBLOCKS_ENABLED === '1' ? [BASE_FLASHBLOCKS_RPC, ...listEnv('AUTO_SELL_FLASHBLOCKS_RPC_URLS')] : []),
-    ...(process.env.AUTO_SELL_PUBLIC_BROADCAST_ENABLED === '0' ? [] : publicBundles.map((bundle) => bundle.url)),
-  ];
-  const seen = new Set<string>();
-  const bundles: RpcBundle[] = [];
-  for (const url of urls) {
-    if (seen.has(url)) continue;
-    seen.add(url);
-    bundles.push(publicByUrl.get(url) ?? createRpcBundle(account, url));
-  }
-  return bundles;
+  const config = currentExitEngineConfig();
+  return buildDirectSellBroadcastBundles(account, publicBundles, {
+    ...rpcRuntimeOptions(),
+    protectedRpcUrls: config.rpc.protectedUrls,
+    flashblocksEnabled: config.rpc.flashblocksEnabled,
+    flashblocksRpcUrls: config.rpc.flashblocksUrls,
+    publicBroadcastEnabled: config.rpc.publicBroadcastEnabled,
+  });
 }
 
 async function submitSellTransaction(
@@ -517,23 +444,20 @@ async function submitSellTransaction(
     deadline: bigint;
   },
 ): Promise<{ sellTxHash: Hash; submitMode: 'primary' | 'multi-rpc'; nonce?: number }> {
-  const primary = bundles[0];
-  if (autoSellSubmitMode() === 'multi-rpc') {
-    try {
-      const submitBundles = broadcastBundles(account, bundles);
-      return {
-        ...await submitSellMultiRpc(bundles, submitBundles, account, input),
-        submitMode: 'multi-rpc',
-      };
-    } catch (err) {
-      if (!primaryFallbackEnabled()) throw err;
-      console.error(`[AutoSell] multi-rpc submit failed; falling back to primary: ${shortError(err).slice(0, 160)}`);
-    }
-  }
-  return {
-    sellTxHash: await submitSellPrimary(bundles, primary, input),
-    submitMode: 'primary',
-  };
+  return submitDirectSellWithFallback(
+    {
+      ...input,
+      submitMode: autoSellSubmitMode(),
+      primaryFallbackEnabled: primaryFallbackEnabled(),
+    },
+    {
+      submitPrimary: (sellInput) => submitSellPrimary(bundles, bundles[0], sellInput),
+      submitMultiRpc: (sellInput) => submitSellMultiRpc(bundles, broadcastBundles(account, bundles), account, sellInput),
+      onMultiRpcFailure: (err) => {
+        console.error(`[AutoSell] multi-rpc submit failed; falling back to primary: ${shortError(err).slice(0, 160)}`);
+      },
+    },
+  );
 }
 
 function buildReferenceAmountOutMin(
@@ -583,10 +507,7 @@ async function buildAmountOutMin(
   }
   try {
     const quoted = await readFast(bundles, (client) => client.readContract({
-      address: input.marketAddress,
-      abi: SELL_ABI,
-      functionName: 'getAmountsOut',
-      args: [input.tokenAddress, ZERO_ADDRESS, input.amountIn],
+      ...buildDirectSellQuoteRead(input),
     }));
     if (quoted <= 0n) throw new Error('quote returned zero');
     const bps = slippageBps();
@@ -598,24 +519,14 @@ async function buildAmountOutMin(
       const reference = buildReferenceAmountOutMin(input);
       if (reference) return { ...reference, minOutSource: 'reference' };
     }
-    if (requireNonzeroMinOut() || process.env.AUTO_SELL_FALLBACK_MIN_OUT_ZERO === '0') throw err;
+    if (requireNonzeroMinOut() || !currentExitEngineConfig().risk.fallbackMinOutZero) throw err;
     return { amountOutMin: 0n, minOutSource: 'zero' };
   }
 }
 
-function parseAddressSetEnv(name: string): Set<string> {
-  return new Set(
-    (process.env[name] ?? '')
-      .split(',')
-      .map(normalizeAddress)
-      .filter(Boolean),
-  );
-}
-
 function parsePreapprovedPairs(): Set<string> {
   return new Set(
-    (process.env.AUTO_SELL_PREAPPROVED_ALLOWANCES ?? '')
-      .split(',')
+    currentExitEngineConfig().route.preapprovedAllowances
       .map((item) => item.trim())
       .filter(Boolean)
       .map((item) => item.split(':').map(normalizeAddress).join(':')),
@@ -640,7 +551,7 @@ function hasPreapprovedAllowance(tokenAddress: Address, spenderAddress: Address)
 
 function parseTokenDecimalsEnv(): Map<string, number> {
   const map = new Map<string, number>();
-  for (const item of (process.env.AUTO_SELL_TOKEN_DECIMALS ?? '').split(',')) {
+  for (const item of currentExitEngineConfig().route.tokenDecimals) {
     const [token, decimals] = item.split(':');
     if (!token || !decimals) continue;
     const parsed = Number(decimals);
@@ -675,8 +586,9 @@ function bigintPercent(value: bigint, percent: number): bigint {
 }
 
 export function autoSellWalletStatus(): { enabled: boolean; keySet: boolean; valid: boolean; wallet?: string } {
-  const enabled = process.env.AUTO_SELL_ENABLED === '1';
-  const rawKey = process.env.AUTO_SELL_PRIVATE_KEY ?? '';
+  const config = currentExitEngineConfig();
+  const enabled = config.enabled;
+  const rawKey = config.wallet.privateKey ?? '';
   if (!rawKey.trim()) return { enabled, keySet: false, valid: false };
   try {
     const account = getAccount(rawKey);
@@ -687,29 +599,30 @@ export function autoSellWalletStatus(): { enabled: boolean; keySet: boolean; val
 }
 
 export async function buildAutoSellReadinessReport(options: AutoSellReadinessOptions = {}): Promise<AutoSellReadinessReport> {
+  const config = currentExitEngineConfig();
   const checkNetwork = options.checkNetwork !== false;
   const requireLive = options.requireLive !== false;
-  const enabled = process.env.AUTO_SELL_ENABLED === '1';
-  const dryRun = process.env.AUTO_SELL_DRY_RUN === '1';
-  const rawKey = process.env.AUTO_SELL_PRIVATE_KEY ?? '';
-  const marketAddress = inputAddress(process.env.AUTO_SELL_MARKET_ADDRESS || DEFAULT_MARKET_ADDRESS);
-  const approvalSpenderAddress = inputAddress(process.env.AUTO_SELL_APPROVAL_SPENDER_ADDRESS || marketAddress);
+  const enabled = config.enabled;
+  const dryRun = config.dryRun;
+  const rawKey = config.wallet.privateKey ?? '';
+  const marketAddress = inputAddress(config.route.marketAddress || DIRECT_SELL_DEFAULT_MARKET_ADDRESS);
+  const approvalSpenderAddress = inputAddress(config.route.approvalSpenderAddress || marketAddress);
   const pairs = preapprovedPairs();
-  const submitMode = autoSellSubmitMode();
+  const submitMode = config.execution.submitMode;
   const urls = rpcUrls();
-  const protectedUrls = listEnv('AUTO_SELL_PROTECTED_RPC_URLS');
-  const flashblocksEnabled = process.env.AUTO_SELL_FLASHBLOCKS_ENABLED === '1';
-  const flashblocksUrls = flashblocksEnabled ? [BASE_FLASHBLOCKS_RPC, ...listEnv('AUTO_SELL_FLASHBLOCKS_RPC_URLS')] : [];
-  const publicBroadcastEnabled = process.env.AUTO_SELL_PUBLIC_BROADCAST_ENABLED !== '0';
-  const primaryFallback = primaryFallbackEnabled();
-  const flashblocksTriggerEnabled = process.env.BUYBACK_FLASHBLOCKS_ENABLED === '1';
-  const flashblocksTriggerUrls = listEnv('BUYBACK_FLASHBLOCKS_WS_URLS');
-  const okxBackupEnabled = process.env.OKX_LIMIT_ORDER_BACKUP_ENABLED === '1';
-  const okxPreplacedSymbols = symbolSetEnv('OKX_LIMIT_ORDER_PREPLACED_SYMBOLS');
-  const fallbackSymbols = symbolSetEnv('BUYBACK_LARGE_BUY_SYMBOLS');
+  const protectedUrls = config.rpc.protectedUrls;
+  const flashblocksEnabled = config.rpc.flashblocksEnabled;
+  const flashblocksUrls = flashblocksEnabled ? [BASE_DIRECT_SELL_FLASHBLOCKS_RPC, ...config.rpc.flashblocksUrls] : [];
+  const publicBroadcastEnabled = config.rpc.publicBroadcastEnabled;
+  const primaryFallback = config.execution.primaryFallbackEnabled;
+  const flashblocksTriggerEnabled = config.integrations.buybackFlashblocksEnabled;
+  const flashblocksTriggerUrls = config.integrations.buybackFlashblocksWsUrls;
+  const okxBackupEnabled = config.integrations.okxLimitOrderBackupEnabled;
+  const okxPreplacedSymbols = new Set(config.integrations.okxLimitOrderPreplacedSymbols);
+  const fallbackSymbols = new Set(config.triggers.largeBuy.symbols);
   const broadcastEndpointCount = protectedUrls.length + flashblocksUrls.length + (publicBroadcastEnabled ? urls.length : 0);
-  const minOutMode = autoSellMinOutMode();
-  const feeMode = autoSellFeeMode();
+  const minOutMode = config.risk.minOutMode;
+  const feeMode = config.risk.feeMode;
   const checks: AutoSellReadinessCheck[] = [];
   const issues: AutoSellReadinessIssue[] = [];
 
@@ -728,14 +641,14 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
   } else {
     addCheck('preapproved_pairs', 'pass', `${pairs.length} preapproved pair${pairs.length === 1 ? '' : 's'} configured`);
   }
-  if (process.env.AUTO_SELL_ON_DEMAND_APPROVE === '0' && pairs.length === 0) {
+  if (!config.execution.onDemandApprove && pairs.length === 0) {
     addCheck('approve_policy', 'fail', 'on-demand approve is disabled but no preapproved pairs are configured');
-  } else if (process.env.AUTO_SELL_ON_DEMAND_APPROVE !== '0') {
+  } else if (config.execution.onDemandApprove) {
     addCheck('approve_policy', 'warn', 'on-demand approve is enabled; unknown tokens can sell, but first trigger may be slower');
   } else {
     addCheck('approve_policy', 'pass', 'on-demand approve disabled; only preapproved fast path is allowed');
   }
-  const gasLimit = parseBigIntEnv('AUTO_SELL_SELL_GAS_LIMIT', 0n);
+  const gasLimit = config.risk.sellGasLimit ?? 0n;
   addCheck('sell_gas_limit', gasLimit > 0n ? 'pass' : 'warn', gasLimit > 0n ? `fixed sell gas=${gasLimit}` : 'sell gas is estimated at trigger time');
   addCheck('min_out_mode', minOutMode === 'zero' ? 'warn' : 'pass', minOutMode === 'zero' ? 'amountOutMin=0 exposes sells to sandwich/slippage loss' : `amountOutMin uses ${minOutMode}`);
   const bps = slippageBps();
@@ -784,10 +697,11 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
     } else {
       addCheck('multi_rpc_gas', 'pass', 'multi-rpc submit has fixed gas');
     }
-    if (parseNumberEnv('AUTO_SELL_MAX_FEE_GWEI', 0) <= 0) {
+    const maxFeeGwei = config.risk.maxFeeGwei ?? 0;
+    if (maxFeeGwei <= 0) {
       addCheck('multi_rpc_fee', feeMode === 'dynamic' ? 'pass' : 'warn', feeMode === 'dynamic' ? 'dynamic max fee is uncapped' : 'AUTO_SELL_MAX_FEE_GWEI is empty; multi-rpc submit will estimate fees at trigger time');
     } else {
-      addCheck('multi_rpc_fee', 'pass', `max fee=${parseNumberEnv('AUTO_SELL_MAX_FEE_GWEI', 0)} gwei`);
+      addCheck('multi_rpc_fee', 'pass', `max fee=${maxFeeGwei} gwei`);
     }
     if (protectedUrls.length > 0) {
       addCheck('protected_rpc', 'pass', `${protectedUrls.length} protected RPC endpoint${protectedUrls.length === 1 ? '' : 's'} configured`);
@@ -856,9 +770,9 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
       addCheck('native_gas_balance', 'fail', `ETH gas balance check failed: ${shortError(err).slice(0, 120)}`);
     }
 
-	    for (const pair of pairs) {
-	      const pairKey = `${normalizeAddress(pair.tokenAddress)}:${normalizeAddress(pair.spenderAddress)}`;
-	      if (!isAddress(pair.tokenAddress) || !isAddress(pair.spenderAddress)) {
+    for (const pair of pairs) {
+      const pairKey = `${normalizeAddress(pair.tokenAddress)}:${normalizeAddress(pair.spenderAddress)}`;
+      if (!isAddress(pair.tokenAddress) || !isAddress(pair.spenderAddress)) {
         addCheck(`allowance:${pairKey}`, 'fail', `invalid preapproved pair ${pairKey}`);
         continue;
       }
@@ -874,18 +788,19 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
         } else {
           addCheck(`allowance:${pairKey}`, 'fail', `${shortAddress(pair.tokenAddress)} allowance is zero`);
         }
-	      } catch (err) {
-	        addCheck(`allowance:${pairKey}`, 'fail', `allowance check failed for ${shortAddress(pair.tokenAddress)}: ${shortError(err).slice(0, 120)}`);
-	      }
-      if (process.env.AUTO_SELL_VERIFY_QUOTES === '1' && minOutMode !== 'zero') {
+      } catch (err) {
+        addCheck(`allowance:${pairKey}`, 'fail', `allowance check failed for ${shortAddress(pair.tokenAddress)}: ${shortError(err).slice(0, 120)}`);
+      }
+      if (config.route.verifyQuotes && minOutMode !== 'zero') {
         try {
           const decimals = parseTokenDecimalsEnv().get(normalizeAddress(pair.tokenAddress)) ?? await getTokenDecimals(bundles, pair.tokenAddress);
           const quoteAmount = decimals <= 36 ? 10n ** BigInt(decimals) : 1n;
           const quoted = await readFast(bundles, (client) => client.readContract({
-            address: asAddress(marketAddress),
-            abi: SELL_ABI,
-            functionName: 'getAmountsOut',
-            args: [pair.tokenAddress, ZERO_ADDRESS, quoteAmount],
+            ...buildDirectSellQuoteRead({
+              marketAddress: asAddress(marketAddress),
+              tokenAddress: pair.tokenAddress,
+              amountIn: quoteAmount,
+            }),
           }));
           addCheck(
             `quote:${normalizeAddress(pair.tokenAddress)}`,
@@ -896,8 +811,8 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
           addCheck(`quote:${normalizeAddress(pair.tokenAddress)}`, 'fail', `quote check failed for ${shortAddress(pair.tokenAddress)}: ${shortError(err).slice(0, 120)}`);
         }
       }
-	    }
-	  }
+    }
+  }
 
   return {
     ok: issues.every((issue) => issue.level !== 'error'),
@@ -918,8 +833,9 @@ function inputAddress(value: string): string {
 }
 
 function resolveSellMarketAddress(triggerMarketAddress?: string): Address {
-  const configured = inputAddress(process.env.AUTO_SELL_MARKET_ADDRESS || DEFAULT_MARKET_ADDRESS);
-  if (process.env.AUTO_SELL_USE_TRIGGER_MARKET_ADDRESS === '1' && triggerMarketAddress) {
+  const config = currentExitEngineConfig();
+  const configured = inputAddress(config.route.marketAddress || DIRECT_SELL_DEFAULT_MARKET_ADDRESS);
+  if (config.route.useTriggerMarketAddress && triggerMarketAddress) {
     return asAddress(triggerMarketAddress);
   }
   return asAddress(configured);
@@ -931,13 +847,14 @@ function shortAddress(value: string): string {
 }
 
 export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellResult> {
-  const enabled = process.env.AUTO_SELL_ENABLED === '1';
-  const dryRun = process.env.AUTO_SELL_DRY_RUN === '1';
-  const rawKey = process.env.AUTO_SELL_PRIVATE_KEY ?? '';
+  const config = currentExitEngineConfig();
+  const enabled = config.enabled;
+  const dryRun = config.dryRun;
+  const rawKey = config.wallet.privateKey ?? '';
   const tokenAddress = asAddress(input.tokenAddress);
   const marketAddress = resolveSellMarketAddress(input.marketAddress);
   const approvalSpenderAddress = asAddress(
-    process.env.AUTO_SELL_APPROVAL_SPENDER_ADDRESS || input.approvalSpenderAddress || marketAddress,
+    config.route.approvalSpenderAddress || input.approvalSpenderAddress || marketAddress,
   );
 
   if (!enabled) return { status: 'disabled', marketAddress, approvalSpenderAddress };
@@ -982,7 +899,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
         functionName: 'balanceOf',
         args: [account.address],
       }));
-      const amountIn = bigintPercent(balance, parseNumberEnv('AUTO_SELL_PERCENT', 100));
+      const amountIn = bigintPercent(balance, config.execution.sellPercent);
       const decimals = await decimalsPromise;
       if (amountIn <= 0n) {
         releaseTokenSellLock(tokenLock.key);
@@ -1003,7 +920,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
           args: [account.address, approvalSpenderAddress],
         }));
         if (allowance < amountIn) {
-          if (process.env.AUTO_SELL_ON_DEMAND_APPROVE === '0') {
+          if (!config.execution.onDemandApprove) {
             releaseTokenSellLock(tokenLock.key);
             return {
               status: 'failed',
@@ -1013,15 +930,10 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
               detectedToSubmitMs: Date.now() - input.detectedAtMs,
             };
           }
-          approveTxHash = await primary.walletClient.writeContract({
-            address: tokenAddress,
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [approvalSpenderAddress, maxUint256],
-          });
+          approveTxHash = await submitErc20ApproveRpc(primary, { tokenAddress, spenderAddress: approvalSpenderAddress });
           await primary.publicClient.waitForTransactionReceipt({ hash: approveTxHash, timeout: 20_000 });
         }
-      } else if (process.env.AUTO_SELL_VERIFY_PREAPPROVED === '1') {
+      } else if (config.execution.verifyPreapproved) {
         const allowance = await readFast(bundles, (client) => client.readContract({
           address: tokenAddress,
           abi: erc20Abi,
@@ -1029,7 +941,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
           args: [account.address, approvalSpenderAddress],
         }));
         if (allowance < amountIn) {
-          if (process.env.AUTO_SELL_ON_DEMAND_APPROVE === '0') {
+          if (!config.execution.onDemandApprove) {
             releaseTokenSellLock(tokenLock.key);
             return {
               status: 'failed',
@@ -1039,12 +951,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
               detectedToSubmitMs: Date.now() - input.detectedAtMs,
             };
           }
-          approveTxHash = await primary.walletClient.writeContract({
-            address: tokenAddress,
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [approvalSpenderAddress, maxUint256],
-          });
+          approveTxHash = await submitErc20ApproveRpc(primary, { tokenAddress, spenderAddress: approvalSpenderAddress });
           await primary.publicClient.waitForTransactionReceipt({ hash: approveTxHash, timeout: 20_000 });
         }
       }
@@ -1059,7 +966,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
       });
       const amountOutMin = minOut.amountOutMin;
 
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + Math.floor(parseNumberEnv('AUTO_SELL_DEADLINE_SECONDS', 60)));
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + Math.floor(config.execution.deadlineSeconds));
       if (dryRun) {
         releaseTokenSellLock(tokenLock.key);
         return {

@@ -21,7 +21,7 @@ import {
   saveSelectionSnapshot, getSelectionSnapshotAt, getLatestSelectionSnapshots,
   pruneOldSelectionSnapshots,
   savePositionAdviceSnapshot, getLatestPositionAdviceSnapshots, pruneOldPositionAdviceSnapshots,
-  hasBuybackEvent, saveBuybackEvent, getBuybackEventCount, saveAutoSellExecution,
+  hasBuybackEvent, saveBuybackEvent, getBuybackEventCount, saveAutoSellExecution, updateAutoSellExecutionReceipt,
   enqueueNotification, claimDueNotifications, hasRecentNotificationWithPrefix, markNotificationSent,
   markNotificationDeliveryFailed, pruneOldNotifications,
   type PotAgentSnapshotRecord,
@@ -63,8 +63,20 @@ import {
   type AutoSellReadinessReport,
   type AutoSellResult,
 } from './autoSell.js';
+import { buildLegacyAutoSellExecutionRecord } from './onchain-exit-engine/auditAdapter.js';
+import { buildExitEngineConfigFromEnv } from './onchain-exit-engine/configSchema.js';
+import { finalizeSellReceipt } from './onchain-exit-engine/receiptFinalizer.js';
+import {
+  applyLegacyReceiptFinalization,
+  createLegacyAutoSellExecutionStorage,
+} from './onchain-exit-engine/storageAdapter.js';
 
 loadDotenv({ override: process.env.CHAIN_RADAR_WATCHER_TEST !== '1' });
+const EXIT_ENGINE_CONFIG = buildExitEngineConfigFromEnv(process.env);
+const autoSellExecutionStorage = createLegacyAutoSellExecutionStorage({
+  saveAutoSellExecution,
+  updateAutoSellExecutionReceipt,
+});
 
 // --- POT MONITOR: Live P&L Signal Detection ---
 
@@ -133,7 +145,7 @@ const HELD_SYMBOLS = parseSymbolSet(
 );
 const EXCLUDED_SYMBOLS = parseSymbolSet(process.env.EXCLUDED_SYMBOLS, DEFAULT_SELECTION_EXCLUDED_SYMBOLS);
 const BUYBACK_MONITOR_ENABLED = process.env.BUYBACK_MONITOR_ENABLED !== '0';
-const BUYBACK_EXECUTOR_ADDRESS = (process.env.BUYBACK_EXECUTOR_ADDRESS ?? '0x9Bda49389B29Fa4E204eD9De8f3d7d06f84dA171').toLowerCase();
+const BUYBACK_EXECUTOR_ADDRESS = EXIT_ENGINE_CONFIG.triggers.officialBuyback.executorAddress.toLowerCase();
 const BUYBACK_MONITOR_SOURCE = (process.env.BUYBACK_MONITOR_SOURCE ?? 'rpc').toLowerCase();
 const BUYBACK_WINDOW_MODE = (process.env.BUYBACK_WINDOW_MODE ?? 'weekly').toLowerCase();
 const BUYBACK_WINDOW_START_DAY = clampInt(parseNumberEnv('BUYBACK_WINDOW_START_DAY', 1), 0, 6);
@@ -152,22 +164,23 @@ const BUYBACK_PRIME_HISTORY = process.env.BUYBACK_PRIME_HISTORY !== '0';
 const BUYBACK_PRIME_GRACE_SECONDS = parseNumberEnv('BUYBACK_PRIME_GRACE_SECONDS', 120);
 const BUYBACK_FAST_BACKFILL_BLOCKS = BigInt(Math.max(0, Math.floor(parseNumberEnv('BUYBACK_FAST_BACKFILL_BLOCKS', 3))));
 const BUYBACK_FAST_MAX_BLOCK_RANGE = BigInt(Math.max(1, Math.floor(parseNumberEnv('BUYBACK_FAST_MAX_BLOCK_RANGE', 20))));
-const BUYBACK_FLASHBLOCKS_ENABLED = process.env.BUYBACK_FLASHBLOCKS_ENABLED === '1';
+const BUYBACK_FLASHBLOCKS_ENABLED = EXIT_ENGINE_CONFIG.integrations.buybackFlashblocksEnabled;
 const BUYBACK_FLASHBLOCKS_RECONNECT_MS = Math.max(500, Math.round(parseNumberEnv('BUYBACK_FLASHBLOCKS_RECONNECT_MS', 1_000)));
-const BUYBACK_LARGE_BUY_FALLBACK_ENABLED = process.env.BUYBACK_LARGE_BUY_FALLBACK_ENABLED === '1';
-const BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL = Math.max(0, parseNumberEnv('BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL', 3_000));
+const BUYBACK_LARGE_BUY_FALLBACK_ENABLED = EXIT_ENGINE_CONFIG.triggers.largeBuy.enabled;
+const BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL = EXIT_ENGINE_CONFIG.triggers.largeBuy.thresholdVirtual;
 const BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL_RAW = BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL > 0
-  ? parseUnitsEnv('BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL', BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL, 18)
+  ? parseUnits(String(BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL), 18)
   : 0n;
-const BUYBACK_LARGE_BUY_THRESHOLD_USD = Math.max(0, parseNumberEnv('BUYBACK_LARGE_BUY_THRESHOLD_USD', 0));
-const BUYBACK_LARGE_BUY_SYMBOLS = parseSymbolSet(process.env.BUYBACK_LARGE_BUY_SYMBOLS, []);
-const BUYBACK_LARGE_BUY_VIRTUAL_USD_FALLBACK = Math.max(0, parseNumberEnv('BUYBACK_LARGE_BUY_VIRTUAL_USD_FALLBACK', 1.5));
+const BUYBACK_LARGE_BUY_THRESHOLD_USD = EXIT_ENGINE_CONFIG.triggers.largeBuy.thresholdUsd;
+const BUYBACK_LARGE_BUY_SYMBOLS = new Set(EXIT_ENGINE_CONFIG.triggers.largeBuy.symbols);
+const BUYBACK_LARGE_BUY_VIRTUAL_USD_FALLBACK = EXIT_ENGINE_CONFIG.triggers.largeBuy.virtualUsdFallback;
 const AUTO_SELL_HEALTHCHECK_ENABLED = process.env.AUTO_SELL_HEALTHCHECK_ENABLED !== '0';
 const AUTO_SELL_HEALTHCHECK_DAY = clampInt(parseNumberEnv('AUTO_SELL_HEALTHCHECK_DAY', 1), 0, 6);
 const AUTO_SELL_HEALTHCHECK_HOUR = clampInt(parseNumberEnv('AUTO_SELL_HEALTHCHECK_HOUR', 15), 0, 23);
 const AUTO_SELL_HEALTHCHECK_MINUTE = clampInt(parseNumberEnv('AUTO_SELL_HEALTHCHECK_MINUTE', 50), 0, 59);
 const AUTO_SELL_HEALTHCHECK_WINDOW_MINUTES = clampInt(parseNumberEnv('AUTO_SELL_HEALTHCHECK_WINDOW_MINUTES', 10), 1, 60);
 const AUTO_SELL_HEALTHCHECK_INTERVAL_MS = Math.max(30_000, Math.round(parseNumberEnv('AUTO_SELL_HEALTHCHECK_INTERVAL_SECONDS', 60) * 1000));
+const AUTO_SELL_RECEIPT_TIMEOUT_MS = Math.max(5_000, Math.round(parseNumberEnv('AUTO_SELL_RECEIPT_TIMEOUT_SECONDS', 45) * 1000));
 const BASESCAN_TX_URL = 'https://basescan.org/tx';
 const BLOCKSCOUT_API = 'https://base.blockscout.com/api/v2';
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -177,8 +190,8 @@ const DEFAULT_AUTO_SELL_MARKET_ADDRESS = '0x1A540088125d00dD3990f9dA45CA0859af4d
 const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const BUYBACK_RPC_TIMEOUT_MS = Math.max(100, Math.round(parseNumberEnv('BUYBACK_RPC_TIMEOUT_MS', 1200)));
 const BUYBACK_RPC_URLS = [
-  process.env.RPC_URL || 'https://mainnet.base.org',
-  ...(process.env.RPC_URL_FALLBACKS ?? '').split(','),
+  EXIT_ENGINE_CONFIG.rpc.primaryUrl || 'https://mainnet.base.org',
+  ...EXIT_ENGINE_CONFIG.rpc.fallbackUrls,
 ]
   .map((value) => value.trim())
   .filter(Boolean)
@@ -386,16 +399,6 @@ function parseNumberEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function parseUnitsEnv(name: string, fallback: number, decimals: number): bigint {
-  const raw = process.env[name]?.trim();
-  const candidate = raw && Number.isFinite(Number(raw)) ? raw : String(fallback);
-  try {
-    return parseUnits(candidate, decimals);
-  } catch {
-    return parseUnits(String(fallback), decimals);
-  }
-}
-
 function clampInt(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.floor(value)));
 }
@@ -414,13 +417,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function listEnv(name: string): string[] {
-  return (process.env[name] ?? '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
 function httpUrlToWsUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -434,11 +430,11 @@ function httpUrlToWsUrl(url: string): string | null {
 }
 
 function flashblocksWsUrls(): string[] {
-  const configured = listEnv('BUYBACK_FLASHBLOCKS_WS_URLS');
+  const configured = EXIT_ENGINE_CONFIG.integrations.buybackFlashblocksWsUrls;
   if (configured.length > 0) return [...new Set(configured)];
 
   const urls: string[] = [];
-  const primaryWs = httpUrlToWsUrl(process.env.RPC_URL ?? '');
+  const primaryWs = httpUrlToWsUrl(EXIT_ENGINE_CONFIG.rpc.primaryUrl ?? '');
   if (primaryWs) urls.push(primaryWs);
   return [...new Set(urls)];
 }
@@ -564,9 +560,9 @@ function asAddress(value: string): `0x${string}` {
   return value as `0x${string}`;
 }
 
-function parseAddressValueEnv(name: string): Map<string, string> {
+function parseAddressValueList(items: string[]): Map<string, string> {
   const map = new Map<string, string>();
-  for (const item of (process.env[name] ?? '').split(',')) {
+  for (const item of items) {
     const [address, value] = item.split(':');
     if (!address || !value) continue;
     map.set(address.trim().toLowerCase(), value.trim());
@@ -576,8 +572,8 @@ function parseAddressValueEnv(name: string): Map<string, string> {
 
 function configuredTokenMeta(token: string): { symbol: string; decimals: number } | null {
   const key = token.toLowerCase();
-  const symbol = parseAddressValueEnv('AUTO_SELL_TOKEN_SYMBOLS').get(key);
-  const decimalsRaw = parseAddressValueEnv('AUTO_SELL_TOKEN_DECIMALS').get(key);
+  const symbol = parseAddressValueList(EXIT_ENGINE_CONFIG.route.tokenSymbols).get(key);
+  const decimalsRaw = parseAddressValueList(EXIT_ENGINE_CONFIG.route.tokenDecimals).get(key);
   const decimals = decimalsRaw !== undefined ? Number(decimalsRaw) : NaN;
   if (!symbol || !Number.isInteger(decimals) || decimals < 0 || decimals > 255) return null;
   return { symbol: symbol.toUpperCase(), decimals };
@@ -585,7 +581,7 @@ function configuredTokenMeta(token: string): { symbol: string; decimals: number 
 
 function preapprovedAutoSellTokenSet(): Set<string> {
   const tokens = new Set<string>();
-  for (const item of (process.env.AUTO_SELL_PREAPPROVED_ALLOWANCES ?? '').split(',')) {
+  for (const item of EXIT_ENGINE_CONFIG.route.preapprovedAllowances) {
     const [token] = item.split(':');
     if (token?.trim()) tokens.add(token.trim().toLowerCase());
   }
@@ -596,8 +592,8 @@ function largeBuyFallbackTokenAddresses(): `0x${string}`[] {
   if (!BUYBACK_LARGE_BUY_FALLBACK_ENABLED) return [];
   if (BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL <= 0 && BUYBACK_LARGE_BUY_THRESHOLD_USD <= 0) return [];
   const preapproved = preapprovedAutoSellTokenSet();
-  const symbolsByAddress = parseAddressValueEnv('AUTO_SELL_TOKEN_SYMBOLS');
-  const decimalsByAddress = parseAddressValueEnv('AUTO_SELL_TOKEN_DECIMALS');
+  const symbolsByAddress = parseAddressValueList(EXIT_ENGINE_CONFIG.route.tokenSymbols);
+  const decimalsByAddress = parseAddressValueList(EXIT_ENGINE_CONFIG.route.tokenDecimals);
   const addresses: `0x${string}`[] = [];
   for (const [address, symbolRaw] of symbolsByAddress.entries()) {
     const symbol = symbolRaw.toUpperCase();
@@ -610,7 +606,7 @@ function largeBuyFallbackTokenAddresses(): `0x${string}`[] {
 }
 
 function defaultAutoSellMarketAddress(): string {
-  return process.env.AUTO_SELL_MARKET_ADDRESS || DEFAULT_AUTO_SELL_MARKET_ADDRESS;
+  return EXIT_ENGINE_CONFIG.route.marketAddress || DEFAULT_AUTO_SELL_MARKET_ADDRESS;
 }
 
 function decodeTransferLog(log: Log): DecodedTransferLog | null {
@@ -814,24 +810,66 @@ function logAutoSellResult(event: BuybackEventRecord, result: AutoSellResult) {
 }
 
 function saveAutoSellResult(event: BuybackEventRecord, result: AutoSellResult) {
-  saveAutoSellExecution({
-    trigger_tx_hash: event.tx_hash,
-    token_address: event.token_address,
-    token_symbol: event.token_symbol,
-    buyback_timestamp: event.timestamp,
-    detected_at_ms: event.detected_at_ms ?? null,
-    wallet_address: result.wallet ?? null,
-    market_address: result.marketAddress ?? event.market_address ?? null,
-    approval_spender_address: result.approvalSpenderAddress ?? event.approval_spender_address ?? null,
-    status: result.status,
-    token_amount: result.tokenAmount ?? null,
-    amount_out_min: result.amountOutMin ?? null,
-    approve_tx_hash: result.approveTxHash ?? null,
-    sell_tx_hash: result.sellTxHash ?? null,
-    detected_to_submit_ms: result.detectedToSubmitMs ?? null,
-    error: result.error ?? null,
-    sell_receipt_status: null,
-  });
+  autoSellExecutionStorage.saveExecution(buildLegacyAutoSellExecutionRecord(event, result));
+  monitorAutoSellReceipt(event, result);
+}
+
+function monitorAutoSellReceipt(event: BuybackEventRecord, result: AutoSellResult) {
+  if (result.status !== 'sent' || !result.sellTxHash) return;
+  const sellTxHash = result.sellTxHash as `0x${string}`;
+  void (async () => {
+    try {
+      const receipt = await readBuybackRpc((client) => client.waitForTransactionReceipt({
+        hash: sellTxHash,
+        timeout: AUTO_SELL_RECEIPT_TIMEOUT_MS,
+      }));
+      const finalization = finalizeSellReceipt({ receiptStatus: receipt.status });
+      if (finalization.action === 'confirm') {
+        applyLegacyReceiptFinalization(
+          autoSellExecutionStorage,
+          event.tx_hash,
+          event.token_address,
+          finalization.legacyDbUpdate,
+        );
+        console.log(`[AutoSellReceipt] status=success | token=${event.token_symbol} | sell=${shortHash(sellTxHash)}`);
+        return;
+      }
+
+      const error = finalization.error ?? `sell receipt status=${finalization.receiptStatusForDb}`;
+      applyLegacyReceiptFinalization(
+        autoSellExecutionStorage,
+        event.tx_hash,
+        event.token_address,
+        finalization.legacyDbUpdate,
+      );
+      console.error(`[AutoSellReceipt] status=${finalization.receiptStatusForDb} | token=${event.token_symbol} | sell=${shortHash(sellTxHash)} | ${error}`);
+      enqueueFeishuCard({
+        title: `[自动卖出链上失败] ${event.token_symbol}`,
+        template: 'red',
+        tokenUrl: `${BASESCAN_TX_URL}/${sellTxHash}`,
+        dedupeKey: `auto-sell-receipt:${sellTxHash}`,
+        voice: voiceAlert('p0', `${event.token_symbol} 自动卖出交易已提交但链上失败，立即查看。`),
+        fields: [
+          { label: '状态', value: error },
+          { label: '卖出交易', value: shortHash(sellTxHash) },
+          { label: '触发交易', value: shortHash(event.tx_hash) },
+          { label: '市场合约', value: result.marketAddress ? shortHash(result.marketAddress) : '未知' },
+          { label: '授权对象', value: result.approvalSpenderAddress ? shortHash(result.approvalSpenderAddress) : '未知' },
+        ],
+      });
+      await flushNotificationOutbox();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const finalization = finalizeSellReceipt({ checkError: message });
+      applyLegacyReceiptFinalization(
+        autoSellExecutionStorage,
+        event.tx_hash,
+        event.token_address,
+        finalization.legacyDbUpdate,
+      );
+      console.error(`[AutoSellReceipt] check failed | token=${event.token_symbol} | sell=${shortHash(sellTxHash)} | error=${message.slice(0, 160)}`);
+    }
+  })();
 }
 
 function getTriggeredThresholdKeys(livePnl: number): Set<string> {
@@ -2297,7 +2335,7 @@ function extractLargeBuyFallbackEventsFromTransfers(
       token_amount: (existing?.token_amount ?? 0) + amount,
       virtual_spent: virtualSpent,
       market_address: marketAddress || undefined,
-      approval_spender_address: process.env.AUTO_SELL_APPROVAL_SPENDER_ADDRESS || item.from,
+      approval_spender_address: EXIT_ENGINE_CONFIG.route.approvalSpenderAddress || item.from,
       detected_at_ms: detectedAtMs,
       trigger_source: 'large_buy_fallback',
       buyer_address: item.to,
@@ -2576,7 +2614,7 @@ async function runAutoSellHealthCheckTick(now = new Date()) {
       voice: voiceAlert('p0', `自动卖出健康检查异常：${message.slice(0, 120)}。16:00 前处理。`),
       fields: [
         { label: '影响', value: '无法确认自动卖出是否就绪', wide: true },
-        { label: '动作', value: '查看服务器日志并手动运行 npm run auto-sell:health', wide: true },
+        { label: '动作', value: '查看服务器日志并手动运行 node dist/checkAutoSellHealth.js', wide: true },
         { label: '异常', value: message.slice(0, 300), wide: true },
       ],
     });

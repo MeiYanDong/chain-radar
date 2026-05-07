@@ -13,6 +13,7 @@ Read order for a new Agent or future review:
 ## Main References
 
 - [Requirements](./requirements.md)
+- [Onchain Exit Engine](./onchain-exit-engine/README.md)
 - [Agent Scoring Model](./agent-scoring-model.md)
 - [Live P&L Price Lag Research](./live-pnl-price-lag-research.md)
 - [Auto-Sell VOLTS / ORCL Postmortem](./auto-sell-volts-orcl-postmortem.md)
