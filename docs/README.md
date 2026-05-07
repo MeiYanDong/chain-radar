@@ -18,3 +18,4 @@ Read order for a new Agent or future review:
 - [Live P&L Price Lag Research](./live-pnl-price-lag-research.md)
 - [Auto-Sell VOLTS / ORCL Postmortem](./auto-sell-volts-orcl-postmortem.md)
 - [Cloud Stability Goal](./cloud-stability-goal-2026-05-04.md)
+- [Private Deployment Runbook](./private-deployment-runbook.md)
