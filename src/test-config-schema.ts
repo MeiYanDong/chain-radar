@@ -42,6 +42,7 @@ const nativeConfig = buildExitEngineConfigFromEnv({
   EXIT_ENGINE_LARGE_BUY_THRESHOLD_USD: '0',
   EXIT_ENGINE_LARGE_BUY_VIRTUAL_USD_FALLBACK: '1.7',
   EXIT_ENGINE_LARGE_BUY_SYMBOLS: 'zmac, volts',
+  EXIT_ENGINE_QUOTE_ADDRESS: '0x02FE8eC3d9BBf7318eb54590bcC39198a8b47deD',
 });
 assert.equal(nativeConfig.enabled, true);
 assert.equal(nativeConfig.dryRun, false);
@@ -62,6 +63,7 @@ assert.equal(nativeConfig.triggers.officialBuyback.executorAddress, '0x9Bda49389
 assert.equal(nativeConfig.triggers.largeBuy.virtualUsdFallback, 1.7);
 assert.deepEqual(nativeConfig.triggers.largeBuy.symbols, ['ZMAC', 'VOLTS']);
 assert.equal(nativeConfig.route.marketAddress, '0x1A540088125d00dD3990f9dA45CA0859af4d3B01');
+assert.equal(nativeConfig.route.quoteAddress, '0x02FE8eC3d9BBf7318eb54590bcC39198a8b47deD');
 assert.deepEqual(nativeConfig.issues, []);
 
 const broadcastDisabledConfig = buildExitEngineConfigFromEnv({
@@ -113,6 +115,7 @@ assert.equal(summary.rpc.fallbackUrlCount, 2);
 assert.equal(summary.rpc.protectedUrlCount, 1);
 assert.equal(summary.risk.sellGasLimitSet, true);
 assert.equal(summary.route.marketAddressSet, true);
+assert.equal(summary.route.quoteAddressSet, true);
 assert.equal(summary.route.preapprovedAllowanceCount, 0);
 assert.equal(summary.integrations.buybackFlashblocksWsUrlCount, 0);
 assert.equal(summaryJson.includes('secret-private-key'), false);

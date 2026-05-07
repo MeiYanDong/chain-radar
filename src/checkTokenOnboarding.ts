@@ -4,7 +4,11 @@ import { isAddress, type Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { buildExitEngineConfigFromEnv } from './onchain-exit-engine/configSchema.js';
-import { DIRECT_SELL_DEFAULT_MARKET_ADDRESS } from './onchain-exit-engine/directSellTransaction.js';
+import {
+  DIRECT_SELL_DEFAULT_MARKET_ADDRESS,
+  defaultDirectSellApprovalSpenderAddress,
+  defaultDirectSellQuoteAddress,
+} from './onchain-exit-engine/directSellTransaction.js';
 import { buildTokenRouteRegistryFromEnv } from './onchain-exit-engine/routeRegistry.js';
 import { assessTokenOnboarding } from './onchain-exit-engine/tokenOnboarding.js';
 import {
@@ -36,7 +40,7 @@ function short(value: string | undefined): string {
 
 const tokenAddress = tokenArg();
 if (!tokenAddress) {
-  console.error('Usage: npm run exit-engine:token-check -- <tokenAddress> [--allow-dry-run] [--require-large-buy] [--no-network] [--market <address>] [--spender <address>]');
+  console.error('Usage: npm run exit-engine:token-check -- <tokenAddress> [--allow-dry-run] [--require-large-buy] [--no-network] [--market <address>] [--quote <address>] [--spender <address>]');
   process.exit(1);
 }
 
@@ -45,9 +49,11 @@ const requireLive = !process.argv.includes('--allow-dry-run');
 const checkNetwork = !process.argv.includes('--no-network');
 const discoverMarket = checkNetwork && !process.argv.includes('--no-discovery');
 const marketArg = argValue('--market');
+const quoteArg = argValue('--quote');
 const spenderArg = argValue('--spender');
 let marketAddress = marketArg || config.route.marketAddress || DIRECT_SELL_DEFAULT_MARKET_ADDRESS;
-let spenderAddress = spenderArg || config.route.approvalSpenderAddress || marketAddress;
+let quoteAddress = quoteArg || config.route.quoteAddress || defaultDirectSellQuoteAddress(marketAddress);
+let spenderAddress = spenderArg || config.route.approvalSpenderAddress || defaultDirectSellApprovalSpenderAddress(marketAddress);
 let registryEnv: Record<string, string | undefined> = process.env;
 let probeResult: TokenOnboardingProbeResult | undefined;
 let probeError: string | undefined;
@@ -76,6 +82,7 @@ if (
   checkNetwork &&
   isAddress(tokenAddress) &&
   isAddress(marketAddress) &&
+  isAddress(quoteAddress) &&
   isAddress(spenderAddress) &&
   (config.rpc.primaryUrl || config.rpc.fallbackUrls.length > 0)
 ) {
@@ -85,6 +92,7 @@ if (
       readTimeoutMs: config.rpc.readTimeoutMs,
       tokenAddress: tokenAddress as Address,
       marketAddress: marketAddress as Address,
+      quoteAddress: quoteAddress as Address,
       spenderAddress: spenderAddress as Address,
       walletAddress: walletAddressFromConfig(),
       sellPercent: config.execution.sellPercent,
@@ -93,6 +101,7 @@ if (
       env: process.env,
       tokenAddress,
       marketAddress,
+      quoteAddress,
       spenderAddress,
       symbol: probeResult.symbol,
       decimals: probeResult.decimals,
@@ -124,12 +133,14 @@ if (
     });
     if (discoveryResult.selected) {
       marketAddress = discoveryResult.selected.address;
-      if (!spenderArg) spenderAddress = discoveryResult.selected.address;
+      if (!quoteArg) quoteAddress = defaultDirectSellQuoteAddress(marketAddress);
+      if (!spenderArg) spenderAddress = defaultDirectSellApprovalSpenderAddress(marketAddress);
       probeResult = await readTokenOnboardingProbeFast({
         rpcUrls: [config.rpc.primaryUrl, ...config.rpc.fallbackUrls].filter(Boolean) as string[],
         readTimeoutMs: config.rpc.readTimeoutMs,
         tokenAddress: tokenAddress as Address,
         marketAddress: marketAddress as Address,
+        quoteAddress: quoteAddress as Address,
         spenderAddress: spenderAddress as Address,
         walletAddress: walletAddressFromConfig(),
         sellPercent: config.execution.sellPercent,
@@ -138,6 +149,7 @@ if (
         env: process.env,
         tokenAddress,
         marketAddress,
+        quoteAddress,
         spenderAddress,
         symbol: probeResult.symbol,
         decimals: probeResult.decimals,
@@ -169,7 +181,7 @@ console.log(`token=${short(assessment.tokenAddress)} symbol=${assessment.symbol 
 console.log(`decision=${assessment.decision}`);
 console.log(`canMonitor=${assessment.canMonitor ? 'yes' : 'no'} canDryRun=${assessment.canDryRun ? 'yes' : 'no'} canLive=${assessment.canLive ? 'yes' : 'no'}`);
 if (assessment.route) {
-  console.log(`market=${short(assessment.route.marketAddress)} spender=${short(assessment.route.approvalSpenderAddress)} backend=${assessment.route.backendPolicy}`);
+  console.log(`market=${short(assessment.route.marketAddress)} quote=${short(quoteAddress)} spender=${short(assessment.route.approvalSpenderAddress)} backend=${assessment.route.backendPolicy}`);
   console.log(`verifiedSell=${assessment.route.verifiedSell ? 'yes' : 'no'} preapproved=${assessment.route.allowancePreapproved ? 'yes' : 'no'} mode=${assessment.route.executionMode}`);
 }
 if (probeResult) {

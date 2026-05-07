@@ -117,6 +117,7 @@ try {
   const buybackExecutor = '0x9bda49389b29fa4e204ed9de8f3d7d06f84da171';
 
   const canonicalMarket = '0x1A540088125d00dD3990f9dA45CA0859af4d3B01';
+  const canonicalQuoteRouter = '0x02FE8eC3d9BBf7318eb54590bcC39198a8b47deD';
   process.env.AUTO_SELL_MARKET_ADDRESS = canonicalMarket;
   process.env.AUTO_SELL_USE_TRIGGER_MARKET_ADDRESS = '0';
   const canonicalMarketResult = await executeAutoSell({
@@ -128,6 +129,8 @@ try {
   });
   assert.equal(canonicalMarketResult.status, 'disabled');
   assert.equal(canonicalMarketResult.marketAddress, canonicalMarket);
+  assert.equal(canonicalMarketResult.quoteAddress, canonicalQuoteRouter);
+  assert.equal(canonicalMarketResult.approvalSpenderAddress, canonicalQuoteRouter);
 
   process.env.AUTO_SELL_USE_TRIGGER_MARKET_ADDRESS = '1';
   const triggerMarketResult = await executeAutoSell({
@@ -216,21 +219,25 @@ try {
   assert.equal(secondQueue.queuePosition, 1);
   assert.ok(secondQueue.queueWaitMs >= firstQueue.queueWaitMs);
 
+  let observedQuoteTarget = '';
   const quotePass = await __autoSellTest.verifyDirectSellRouteQuote([
     {
       publicClient: {
-        async readContract() {
+        async readContract(input: { address: string }) {
+          observedQuoteTarget = input.address;
           return 123n;
         },
       },
     },
   ] as any, {
     marketAddress: canonicalMarket as any,
+    quoteAddress: canonicalQuoteRouter as any,
     tokenAddress: novaToken as any,
     amountIn: 10n ** 18n,
   });
   assert.equal(quotePass.ok, true);
   assert.equal(quotePass.quotedAmountOut, 123n);
+  assert.equal(observedQuoteTarget, canonicalQuoteRouter);
 
   const quoteZero = await __autoSellTest.verifyDirectSellRouteQuote([
     {

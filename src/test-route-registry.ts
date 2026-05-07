@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import {
+  DEFAULT_DIRECT_APPROVAL_SPENDER_ADDRESS,
   DEFAULT_DIRECT_MARKET_ADDRESS,
   buildTokenRouteRegistryFromEnv,
   getTokenRoute,
@@ -114,6 +115,7 @@ const perTokenRegistry = buildTokenRouteRegistryFromEnv({
   EXIT_ENGINE_VERIFIED_SELL_ROUTES: `${otherToken}:${wrongMarket}:${wrongSpender}`,
 });
 assert.equal(getTokenRoute(perTokenRegistry, token)?.marketAddress, DEFAULT_DIRECT_MARKET_ADDRESS.toLowerCase());
+assert.equal(getTokenRoute(perTokenRegistry, token)?.approvalSpenderAddress, DEFAULT_DIRECT_APPROVAL_SPENDER_ADDRESS.toLowerCase());
 assert.equal(getTokenRoute(perTokenRegistry, otherToken)?.marketAddress, wrongMarket.toLowerCase());
 assert.equal(getTokenRoute(perTokenRegistry, otherToken)?.approvalSpenderAddress, wrongSpender.toLowerCase());
 assert.equal(getTokenRoute(perTokenRegistry, otherToken)?.executionMode, 'live');

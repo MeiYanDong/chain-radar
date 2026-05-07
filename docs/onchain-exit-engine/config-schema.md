@@ -25,6 +25,7 @@ The future standalone engine should prefer neutral `EXIT_ENGINE_*` keys. The cur
 | `EXIT_ENGINE_SUBMIT_MODE` | `AUTO_SELL_SUBMIT_MODE` | no | `primary` or `multi-rpc`. |
 | `EXIT_ENGINE_PRIMARY_FALLBACK_ENABLED` | `AUTO_SELL_PRIMARY_FALLBACK_ENABLED` | no | Whether multi-RPC failure may fall back to primary RPC. Defaults to the public-broadcast setting. |
 | `EXIT_ENGINE_MIN_OUT_MODE` | `AUTO_SELL_MIN_OUT_MODE` | no | `zero`, `quote`, `quote-required`, `reference`, or `quote-reference`. |
+| `EXIT_ENGINE_QUOTE_ADDRESS` | `AUTO_SELL_QUOTE_ADDRESS` | no | Optional read-only quote router. Defaults to the Virtuals FRouterV3 for the built-in BondingV5 sell target. |
 | `EXIT_ENGINE_BUYBACK_EXECUTOR_ADDRESS` | `BUYBACK_EXECUTOR_ADDRESS` | no | Official buyback executor address. |
 | `EXIT_ENGINE_LARGE_BUY_THRESHOLD_VIRTUAL` | `BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL` | no | Strict greater-than VIRTUAL threshold. |
 | `EXIT_ENGINE_LARGE_BUY_VIRTUAL_USD_FALLBACK` | `BUYBACK_LARGE_BUY_VIRTUAL_USD_FALLBACK` | no | Fallback VIRTUAL/USD price for USD threshold checks. |
@@ -56,7 +57,7 @@ Current guarantees:
 - native `EXIT_ENGINE_*` env can produce an engine config,
 - legacy `AUTO_SELL_*` / `BUYBACK_*` env can produce the same shape,
 - `src/autoSell.ts` consumes the built config object for readiness and execution behavior,
-- `src/watcher.ts` consumes the built config object for official-buyback executor, large-buy fallback, Flashblocks WS, RPC URL, token metadata, preapproval, market, and approval-spender trigger settings,
+- `src/watcher.ts` consumes the built config object for official-buyback executor, large-buy fallback, Flashblocks WS, RPC URL, token metadata, preapproval, market, quote router, and approval-spender trigger settings,
 - disabling public broadcast also disables primary fallback unless primary fallback is explicitly enabled,
 - public summary only reports booleans, counts, modes, and numeric policy values,
 - public summary omits private key values, full RPC URLs, and `bigint` gas values.
@@ -68,6 +69,7 @@ Current guarantees:
   - verified direct route with non-zero quote and sufficient allowance -> live-ready.
 - token onboarding can use read-only RPC probes to fill candidate symbol / decimals / quote / allowance / balance without mutating `.env` or submitting transactions.
 - token route discovery can use public Blockscout token transfers to test token-specific market candidates, but it still requires a non-zero direct quote before using a discovered route.
+- direct sell routes can separate sell target, quote router, and approval spender; for the built-in Virtuals BondingV5 route, the default sell target is BondingV5 and the default quote/spender address is FRouterV3.
 
 ## Extraction Rule
 

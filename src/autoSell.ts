@@ -11,6 +11,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import {
   DIRECT_SELL_DEFAULT_MARKET_ADDRESS,
   buildDirectSellQuoteRead,
+  defaultDirectSellApprovalSpenderAddress,
+  defaultDirectSellQuoteAddress,
 } from './onchain-exit-engine/directSellTransaction.js';
 import { submitDirectSellWithFallback } from './onchain-exit-engine/directSellSubmission.js';
 import { buildExitEngineConfigFromEnv, type ExitEngineConfig } from './onchain-exit-engine/configSchema.js';
@@ -45,6 +47,7 @@ export interface AutoSellInput {
   tokenAddress: string;
   tokenSymbol: string;
   marketAddress?: string;
+  quoteAddress?: string;
   approvalSpenderAddress?: string;
   triggerTxHash: string;
   detectedAtMs: number;
@@ -58,6 +61,7 @@ export interface AutoSellResult {
   sellTxHash?: string;
   approveTxHash?: string;
   marketAddress?: string;
+  quoteAddress?: string;
   approvalSpenderAddress?: string;
   tokenAmount?: string;
   amountOutMin?: string;
@@ -93,6 +97,7 @@ export interface AutoSellReadinessReport {
   dryRun: boolean;
   wallet?: string;
   marketAddress: string;
+  quoteAddress: string;
   approvalSpenderAddress: string;
   rpcCount: number;
   preapprovedPairs: number;
@@ -487,6 +492,7 @@ async function buildAmountOutMin(
   bundles: RpcBundle[],
   input: {
     marketAddress: Address;
+    quoteAddress?: Address;
     tokenAddress: Address;
     amountIn: bigint;
     tokenDecimals: number;
@@ -529,6 +535,7 @@ async function verifyDirectSellRouteQuote(
   bundles: RpcBundle[],
   input: {
     marketAddress: Address;
+    quoteAddress?: Address;
     tokenAddress: Address;
     amountIn: bigint;
   },
@@ -626,7 +633,8 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
   const dryRun = config.dryRun;
   const rawKey = config.wallet.privateKey ?? '';
   const marketAddress = inputAddress(config.route.marketAddress || DIRECT_SELL_DEFAULT_MARKET_ADDRESS);
-  const approvalSpenderAddress = inputAddress(config.route.approvalSpenderAddress || marketAddress);
+  const quoteAddress = inputAddress(config.route.quoteAddress || defaultDirectSellQuoteAddress(marketAddress));
+  const approvalSpenderAddress = inputAddress(config.route.approvalSpenderAddress || defaultDirectSellApprovalSpenderAddress(marketAddress));
   const pairs = preapprovedPairs();
   const submitMode = config.execution.submitMode;
   const urls = rpcUrls();
@@ -655,6 +663,7 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
   addCheck('enabled', enabled ? 'pass' : 'fail', enabled ? 'AUTO_SELL_ENABLED=1' : 'AUTO_SELL_ENABLED is not 1');
   addCheck('dry_run', requireLive && dryRun ? 'fail' : 'pass', dryRun ? 'AUTO_SELL_DRY_RUN=1' : 'AUTO_SELL_DRY_RUN=0');
   addCheck('market_address', isAddress(marketAddress) ? 'pass' : 'fail', `market=${shortAddress(marketAddress)}`);
+  addCheck('quote_address', isAddress(quoteAddress) ? 'pass' : 'fail', `quote=${shortAddress(quoteAddress)}`);
   addCheck('approval_spender', isAddress(approvalSpenderAddress) ? 'pass' : 'fail', `spender=${shortAddress(approvalSpenderAddress)}`);
   if (pairs.length === 0) {
     addCheck('preapproved_pairs', 'warn', 'AUTO_SELL_PREAPPROVED_ALLOWANCES is empty; first trigger may need on-demand approve');
@@ -819,6 +828,7 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
           const quoted = await readFast(bundles, (client) => client.readContract({
             ...buildDirectSellQuoteRead({
               marketAddress: asAddress(marketAddress),
+              quoteAddress: asAddress(quoteAddress),
               tokenAddress: pair.tokenAddress,
               amountIn: quoteAmount,
             }),
@@ -841,6 +851,7 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
     dryRun,
     wallet: account?.address,
     marketAddress,
+    quoteAddress,
     approvalSpenderAddress,
     rpcCount: urls.length,
     preapprovedPairs: pairs.length,
@@ -862,6 +873,19 @@ function resolveSellMarketAddress(triggerMarketAddress?: string): Address {
   return asAddress(configured);
 }
 
+function resolveQuoteAddress(marketAddress: Address, triggerQuoteAddress?: string): Address {
+  const config = currentExitEngineConfig();
+  return asAddress(config.route.quoteAddress || triggerQuoteAddress || defaultDirectSellQuoteAddress(marketAddress));
+}
+
+function resolveApprovalSpenderAddress(marketAddress: Address, triggerApprovalSpenderAddress?: string): Address {
+  const config = currentExitEngineConfig();
+  if (config.route.approvalSpenderAddress) return asAddress(config.route.approvalSpenderAddress);
+  const defaultSpender = defaultDirectSellApprovalSpenderAddress(marketAddress);
+  if (normalizeAddress(defaultSpender) !== normalizeAddress(marketAddress)) return defaultSpender;
+  return asAddress(triggerApprovalSpenderAddress || marketAddress);
+}
+
 function shortAddress(value: string): string {
   if (value.length < 14) return value;
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
@@ -874,18 +898,17 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
   const rawKey = config.wallet.privateKey ?? '';
   const tokenAddress = asAddress(input.tokenAddress);
   const marketAddress = resolveSellMarketAddress(input.marketAddress);
-  const approvalSpenderAddress = asAddress(
-    config.route.approvalSpenderAddress || input.approvalSpenderAddress || marketAddress,
-  );
+  const quoteAddress = resolveQuoteAddress(marketAddress, input.quoteAddress);
+  const approvalSpenderAddress = resolveApprovalSpenderAddress(marketAddress, input.approvalSpenderAddress);
 
-  if (!enabled) return { status: 'disabled', marketAddress, approvalSpenderAddress };
-  if (!rawKey.trim()) return { status: 'missing-key', marketAddress, approvalSpenderAddress };
+  if (!enabled) return { status: 'disabled', marketAddress, quoteAddress, approvalSpenderAddress };
+  if (!rawKey.trim()) return { status: 'missing-key', marketAddress, quoteAddress, approvalSpenderAddress };
 
   let account: Account;
   try {
     account = getAccount(rawKey);
   } catch {
-    return { status: 'invalid-key', marketAddress, approvalSpenderAddress };
+    return { status: 'invalid-key', marketAddress, quoteAddress, approvalSpenderAddress };
   }
 
   const tokenLock = acquireTokenSellLock(tokenAddress, input.triggerTxHash);
@@ -894,6 +917,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
       status: 'skipped',
       wallet: account.address,
       marketAddress,
+      quoteAddress,
       approvalSpenderAddress,
       error: tokenLock.reason,
       detectedToSubmitMs: Date.now() - input.detectedAtMs,
@@ -907,6 +931,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
     const baseResult = {
       wallet: account.address,
       marketAddress,
+      quoteAddress,
       approvalSpenderAddress,
       queueWaitMs,
       queuePosition,
@@ -934,6 +959,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
 
       const quoteGate = await verifyDirectSellRouteQuote(bundles, {
         marketAddress,
+        quoteAddress,
         tokenAddress,
         amountIn,
       });
@@ -996,6 +1022,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
 
       const minOut = await buildAmountOutMin(bundles, {
         marketAddress,
+        quoteAddress,
         tokenAddress,
         amountIn,
         tokenDecimals: decimals,

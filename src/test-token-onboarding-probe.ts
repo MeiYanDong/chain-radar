@@ -32,15 +32,20 @@ function mockClient(overrides: Partial<Record<string, unknown>> = {}): TokenOnbo
 }
 
 let probe = await readTokenOnboardingProbe({
-  client: mockClient(),
+  client: mockClient({
+    [`${market}:getAmountsOut`.toLowerCase()]: new Error('wrong quote target'),
+    [`${spender}:getAmountsOut`.toLowerCase()]: 25n,
+  }),
   tokenAddress: token,
   marketAddress: market,
+  quoteAddress: spender,
   spenderAddress: spender,
   walletAddress: wallet,
   sellPercent: 50,
 });
 assert.equal(probe.symbol, 'NOVA');
 assert.equal(probe.decimals, 18);
+assert.equal(probe.quoteAddress, spender);
 assert.equal(probe.quoteAmountRaw, 10n ** 18n);
 assert.equal(probe.probe.quote?.status, 'pass');
 assert.equal(probe.probe.quote?.amountOutRaw, 25n);
@@ -54,6 +59,7 @@ probe = await readTokenOnboardingProbe({
   client: mockClient({ [`${token}:decimals`.toLowerCase()]: new Error('decimals reverted') }),
   tokenAddress: token,
   marketAddress: market,
+  quoteAddress: spender,
   spenderAddress: spender,
 });
 assert.equal(probe.decimals, undefined);
@@ -69,6 +75,7 @@ const env = buildTokenOnboardingCandidateEnv({
   },
   tokenAddress: token,
   marketAddress: market,
+  quoteAddress: spender,
   spenderAddress: spender,
   symbol: 'NOVA',
   decimals: 18,

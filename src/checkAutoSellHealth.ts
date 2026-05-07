@@ -13,6 +13,7 @@ console.log(`status=${report.ok ? 'ready' : 'not-ready'}`);
 console.log(`enabled=${report.enabled ? 'yes' : 'no'} dryRun=${report.dryRun ? 'yes' : 'no'} rpc=${report.rpcCount} preapprovedPairs=${report.preapprovedPairs}`);
 console.log(`wallet=${report.wallet ? `${report.wallet.slice(0, 8)}...${report.wallet.slice(-6)}` : 'missing'}`);
 console.log(`market=${report.marketAddress.slice(0, 8)}...${report.marketAddress.slice(-6)}`);
+console.log(`quote=${report.quoteAddress.slice(0, 8)}...${report.quoteAddress.slice(-6)}`);
 console.log(`spender=${report.approvalSpenderAddress.slice(0, 8)}...${report.approvalSpenderAddress.slice(-6)}`);
 console.log('');
 

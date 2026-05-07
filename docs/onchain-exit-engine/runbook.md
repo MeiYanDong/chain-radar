@@ -27,17 +27,20 @@ Token onboarding command shape:
 ```bash
 npm run exit-engine:token-check -- <tokenAddress> --allow-dry-run
 npm run exit-engine:token-check -- <tokenAddress> --require-large-buy
+npm run exit-engine:token-check -- <tokenAddress> --market <sellTarget> --quote <quoteRouter> --spender <spender>
 npm run exit-engine:token-check -- <tokenAddress> --no-discovery
 npm run exit-engine:token-check -- <tokenAddress> --no-network
 ```
 
 The token check is read-only. With RPC configured, it probes token `symbol`, `decimals`, direct sell quote, wallet balance, and spender allowance. It does not submit approvals or sells.
 
+Do not assume `market`, `quote`, and `spender` are the same address. Virtuals BondingV5 pre-token routes use BondingV5 as the sell target, but FRouterV3 as both quote router and approval spender.
+
 If the configured market quote fails, the checker can scan recent Blockscout token transfers for contract counterparties and test them as token-specific market candidates. Only a candidate with a non-zero `getAmountsOut` quote can become the discovered market. If no candidate quotes, the token stays blocked.
 
 A new token is not live-ready just because the address exists. The checker must at least classify it as dry-run-ready first, then the operator should do a small verified sell before marking the route live.
 
-The execution path also enforces a direct quote gate. If `getAmountsOut` fails or returns zero for the configured market/token pair, the engine returns `failed` before any approval or sell transaction is submitted.
+The execution path also enforces a direct quote gate. If `getAmountsOut` fails or returns zero for the resolved quote router/token pair, the engine returns `failed` before any approval or sell transaction is submitted.
 
 Deployment hosts may need a compiled runtime command, but the host path, service manager, and environment files are deployment-specific and intentionally not defined here.
 

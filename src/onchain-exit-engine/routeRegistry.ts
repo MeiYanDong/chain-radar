@@ -1,6 +1,11 @@
 import { isAddress } from 'viem';
+import {
+  DIRECT_SELL_DEFAULT_MARKET_ADDRESS,
+  defaultDirectSellApprovalSpenderAddress,
+} from './directSellTransaction.js';
 
-export const DEFAULT_DIRECT_MARKET_ADDRESS = '0x1A540088125d00dD3990f9dA45CA0859af4d3B01';
+export const DEFAULT_DIRECT_MARKET_ADDRESS = DIRECT_SELL_DEFAULT_MARKET_ADDRESS;
+export const DEFAULT_DIRECT_APPROVAL_SPENDER_ADDRESS = defaultDirectSellApprovalSpenderAddress(DEFAULT_DIRECT_MARKET_ADDRESS);
 
 export type ExitBackendPolicy = 'direct' | 'okx_quote_only' | 'alert_only';
 export type RouteExecutionMode = 'live' | 'dry_run' | 'alert_only';
@@ -139,8 +144,10 @@ export function buildTokenRouteRegistryFromEnv(env: EnvLike = process.env): Toke
   const backendByToken = parseAddressValueEnv(env.EXIT_ENGINE_BACKEND_POLICIES);
   const preapprovedPairs = parsePreapprovedPairs(env.EXIT_ENGINE_PREAPPROVED_ALLOWANCES ?? env.AUTO_SELL_PREAPPROVED_ALLOWANCES);
   const verifiedRoutes = parseVerifiedRoutes(env.EXIT_ENGINE_VERIFIED_SELL_ROUTES);
-  const globalMarket = env.AUTO_SELL_MARKET_ADDRESS || DEFAULT_DIRECT_MARKET_ADDRESS;
-  const globalSpender = env.AUTO_SELL_APPROVAL_SPENDER_ADDRESS || globalMarket;
+  const globalMarket = env.EXIT_ENGINE_MARKET_ADDRESS || env.AUTO_SELL_MARKET_ADDRESS || DEFAULT_DIRECT_MARKET_ADDRESS;
+  const globalSpender = env.EXIT_ENGINE_APPROVAL_SPENDER_ADDRESS ||
+    env.AUTO_SELL_APPROVAL_SPENDER_ADDRESS ||
+    defaultDirectSellApprovalSpenderAddress(globalMarket);
 
   const tokens = new Set<string>([
     ...symbolsByToken.keys(),

@@ -72,6 +72,7 @@ export interface ExitEngineConfig {
   };
   route: {
     marketAddress: string;
+    quoteAddress?: string;
     approvalSpenderAddress?: string;
     useTriggerMarketAddress: boolean;
     preapprovedAllowances: string[];
@@ -107,6 +108,7 @@ export interface PublicExitEngineConfigSummary {
   triggers: ExitEngineConfig['triggers'];
   route: {
     marketAddressSet: boolean;
+    quoteAddressSet: boolean;
     approvalSpenderAddressSet: boolean;
     useTriggerMarketAddress: boolean;
     preapprovedAllowanceCount: number;
@@ -240,6 +242,14 @@ export const EXIT_ENGINE_CONFIG_FIELDS: ExitEngineConfigField[] = [
     category: 'route',
     description: 'Token-address to spender-address preapproval mapping.',
   },
+  {
+    key: 'EXIT_ENGINE_QUOTE_ADDRESS',
+    legacyKey: 'AUTO_SELL_QUOTE_ADDRESS',
+    required: false,
+    secret: false,
+    category: 'route',
+    description: 'Read-only quote router for direct sell amountOut checks.',
+  },
 ];
 
 function firstEnv(env: EnvLike, nativeKey: string, legacyKey?: string): string | undefined {
@@ -318,6 +328,7 @@ export function buildExitEngineConfigFromEnv(env: EnvLike = process.env): ExitEn
   const primaryRpcUrl = firstEnv(env, 'EXIT_ENGINE_RPC_URL', 'RPC_URL');
   const marketAddress = firstEnv(env, 'EXIT_ENGINE_MARKET_ADDRESS', 'AUTO_SELL_MARKET_ADDRESS') ||
     '0x1A540088125d00dD3990f9dA45CA0859af4d3B01';
+  const quoteAddress = firstEnv(env, 'EXIT_ENGINE_QUOTE_ADDRESS', 'AUTO_SELL_QUOTE_ADDRESS');
   const approvalSpenderAddress = firstEnv(env, 'EXIT_ENGINE_APPROVAL_SPENDER_ADDRESS', 'AUTO_SELL_APPROVAL_SPENDER_ADDRESS');
   const publicBroadcastEnabled = boolEnv(env, 'EXIT_ENGINE_PUBLIC_BROADCAST_ENABLED', 'AUTO_SELL_PUBLIC_BROADCAST_ENABLED', true);
   const primaryFallbackEnabled = boolValue(
@@ -345,7 +356,7 @@ export function buildExitEngineConfigFromEnv(env: EnvLike = process.env): ExitEn
       primaryUrl: primaryRpcUrl,
       fallbackUrls: csvEnv(env, 'EXIT_ENGINE_RPC_URL_FALLBACKS', 'RPC_URL_FALLBACKS'),
       protectedUrls: csvEnv(env, 'EXIT_ENGINE_PROTECTED_RPC_URLS', 'AUTO_SELL_PROTECTED_RPC_URLS'),
-      readTimeoutMs: Math.max(100, Math.round(numberEnv(env, 'EXIT_ENGINE_RPC_READ_TIMEOUT_MS', 'AUTO_SELL_READ_TIMEOUT_MS', 1200))),
+      readTimeoutMs: Math.max(100, Math.round(numberEnv(env, 'EXIT_ENGINE_RPC_READ_TIMEOUT_MS', 'AUTO_SELL_READ_TIMEOUT_MS', 5000))),
       writeTimeoutMs: Math.max(300, Math.round(numberEnv(env, 'EXIT_ENGINE_RPC_WRITE_TIMEOUT_MS', 'AUTO_SELL_WRITE_TIMEOUT_MS', 1800))),
       flashblocksEnabled: boolEnv(env, 'EXIT_ENGINE_FLASHBLOCKS_ENABLED', 'AUTO_SELL_FLASHBLOCKS_ENABLED', false),
       flashblocksUrls: csvEnv(env, 'EXIT_ENGINE_FLASHBLOCKS_RPC_URLS', 'AUTO_SELL_FLASHBLOCKS_RPC_URLS'),
@@ -390,6 +401,7 @@ export function buildExitEngineConfigFromEnv(env: EnvLike = process.env): ExitEn
     },
     route: {
       marketAddress,
+      quoteAddress,
       approvalSpenderAddress,
       useTriggerMarketAddress: boolEnv(env, 'EXIT_ENGINE_USE_TRIGGER_MARKET_ADDRESS', 'AUTO_SELL_USE_TRIGGER_MARKET_ADDRESS', false),
       preapprovedAllowances: csvEnv(env, 'EXIT_ENGINE_PREAPPROVED_ALLOWANCES', 'AUTO_SELL_PREAPPROVED_ALLOWANCES'),
@@ -433,6 +445,7 @@ export function publicExitEngineConfigSummary(config: ExitEngineConfig): PublicE
     triggers: config.triggers,
     route: {
       marketAddressSet: Boolean(config.route.marketAddress),
+      quoteAddressSet: Boolean(config.route.quoteAddress),
       approvalSpenderAddressSet: Boolean(config.route.approvalSpenderAddress),
       useTriggerMarketAddress: config.route.useTriggerMarketAddress,
       preapprovedAllowanceCount: config.route.preapprovedAllowances.length,

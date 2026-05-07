@@ -2579,6 +2579,7 @@ function autoSellHealthCard(report: AutoSellReadinessReport): FeishuCard | null 
       { label: '动作', value: '16:00 前检查服务器 .env、RPC、私钥、预授权和飞书强提醒', wide: true },
       { label: '钱包', value: report.wallet ? shortHash(report.wallet) : '未识别' },
       { label: '市场合约', value: shortHash(report.marketAddress) },
+      { label: '报价路由', value: shortHash(report.quoteAddress) },
       { label: '授权对象', value: shortHash(report.approvalSpenderAddress) },
       { label: 'RPC 数量', value: String(report.rpcCount) },
       { label: '预授权配置', value: `${report.preapprovedPairs} 组` },

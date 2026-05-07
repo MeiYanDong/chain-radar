@@ -56,7 +56,7 @@ Checks:
 
 - token is configured,
 - route is verified or allowed,
-- direct sell quote succeeds before approval or sell submission,
+- direct sell quote succeeds through the resolved quote router before approval or sell submission,
 - allowance is ready,
 - wallet has gas,
 - slippage mode is nonzero when required,
@@ -77,6 +77,7 @@ New token onboarding decisions:
 Primary backend:
 
 - direct sell through known market contract.
+- Virtuals BondingV5 routes separate the sell target from FRouterV3 quote and approval-spender responsibilities.
 
 Secondary future backend:
 

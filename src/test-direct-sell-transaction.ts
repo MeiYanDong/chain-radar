@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 
 import {
   DIRECT_SELL_ABI,
+  DIRECT_SELL_DEFAULT_APPROVAL_SPENDER_ADDRESS,
   DIRECT_SELL_DEFAULT_MARKET_ADDRESS,
+  DIRECT_SELL_DEFAULT_QUOTE_ADDRESS,
   DIRECT_SELL_ZERO_ASSET_ADDRESS,
   buildDirectSellCalldata,
   buildDirectSellQuoteRead,
@@ -27,11 +29,16 @@ assert.equal(write.functionName, 'sell');
 assert.deepEqual(write.args, [amountIn, tokenAddress, amountOutMin, deadline]);
 
 const quote = buildDirectSellQuoteRead({ marketAddress, tokenAddress, amountIn });
-assert.equal(quote.address, marketAddress);
+assert.equal(quote.address, DIRECT_SELL_DEFAULT_QUOTE_ADDRESS);
 assert.equal(quote.abi, DIRECT_SELL_ABI);
 assert.equal(quote.functionName, 'getAmountsOut');
 assert.deepEqual(quote.args, [tokenAddress, DIRECT_SELL_ZERO_ASSET_ADDRESS, amountIn]);
 assert.deepEqual(directSellQuoteArgs({ marketAddress, tokenAddress, amountIn }), quote.args);
+assert.equal(DIRECT_SELL_DEFAULT_APPROVAL_SPENDER_ADDRESS, DIRECT_SELL_DEFAULT_QUOTE_ADDRESS);
+
+const customQuoteAddress = '0x4444444444444444444444444444444444444444' as const;
+const explicitQuote = buildDirectSellQuoteRead({ marketAddress, quoteAddress: customQuoteAddress, tokenAddress, amountIn });
+assert.equal(explicitQuote.address, customQuoteAddress);
 
 const calldata = buildDirectSellCalldata(call);
 assert.equal(calldata.startsWith('0x'), true);

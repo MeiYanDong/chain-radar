@@ -2,6 +2,8 @@ import { encodeFunctionData, parseAbi, type Address, type Hex } from 'viem';
 
 export const DIRECT_SELL_ZERO_ASSET_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 export const DIRECT_SELL_DEFAULT_MARKET_ADDRESS = '0x1A540088125d00dD3990f9dA45CA0859af4d3B01' as const;
+export const DIRECT_SELL_DEFAULT_QUOTE_ADDRESS = '0x02FE8eC3d9BBf7318eb54590bcC39198a8b47deD' as const;
+export const DIRECT_SELL_DEFAULT_APPROVAL_SPENDER_ADDRESS = DIRECT_SELL_DEFAULT_QUOTE_ADDRESS;
 
 export const DIRECT_SELL_ABI = parseAbi([
   'function sell(uint256 amountIn,address tokenAddress,uint256 amountOutMin,uint256 deadline) returns (bool)',
@@ -18,8 +20,33 @@ export interface DirectSellCallInput {
 
 export interface DirectSellQuoteInput {
   marketAddress: Address;
+  quoteAddress?: Address;
   tokenAddress: Address;
   amountIn: bigint;
+}
+
+function normalizeAddress(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function isDefaultDirectSellMarketAddress(marketAddress: string): boolean {
+  return normalizeAddress(marketAddress) === normalizeAddress(DIRECT_SELL_DEFAULT_MARKET_ADDRESS);
+}
+
+export function defaultDirectSellQuoteAddress(marketAddress: string): Address {
+  return isDefaultDirectSellMarketAddress(marketAddress)
+    ? DIRECT_SELL_DEFAULT_QUOTE_ADDRESS
+    : marketAddress as Address;
+}
+
+export function defaultDirectSellApprovalSpenderAddress(marketAddress: string): Address {
+  return isDefaultDirectSellMarketAddress(marketAddress)
+    ? DIRECT_SELL_DEFAULT_APPROVAL_SPENDER_ADDRESS
+    : marketAddress as Address;
+}
+
+export function resolveDirectSellQuoteAddress(input: Pick<DirectSellQuoteInput, 'marketAddress' | 'quoteAddress'>): Address {
+  return input.quoteAddress ?? defaultDirectSellQuoteAddress(input.marketAddress);
 }
 
 export function directSellArgs(input: DirectSellCallInput): readonly [bigint, Address, bigint, bigint] {
@@ -41,7 +68,7 @@ export function buildDirectSellWriteContract(input: DirectSellCallInput) {
 
 export function buildDirectSellQuoteRead(input: DirectSellQuoteInput) {
   return {
-    address: input.marketAddress,
+    address: resolveDirectSellQuoteAddress(input),
     abi: DIRECT_SELL_ABI,
     functionName: 'getAmountsOut',
     args: directSellQuoteArgs(input),

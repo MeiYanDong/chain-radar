@@ -23,6 +23,7 @@ export interface TokenOnboardingProbeInput {
   client: TokenOnboardingReadClient;
   tokenAddress: Address;
   marketAddress: Address;
+  quoteAddress?: Address;
   spenderAddress: Address;
   walletAddress?: Address;
   sellPercent?: number;
@@ -31,6 +32,7 @@ export interface TokenOnboardingProbeInput {
 export interface TokenOnboardingProbeResult {
   tokenAddress: Address;
   marketAddress: Address;
+  quoteAddress?: Address;
   spenderAddress: Address;
   walletAddress?: Address;
   symbol?: string;
@@ -48,6 +50,7 @@ export interface TokenOnboardingCandidateEnvInput {
   env: Record<string, string | undefined>;
   tokenAddress: string;
   marketAddress: string;
+  quoteAddress?: string;
   spenderAddress: string;
   symbol?: string;
   decimals?: number;
@@ -108,6 +111,7 @@ export async function readTokenOnboardingProbe(input: TokenOnboardingProbeInput)
   const result: TokenOnboardingProbeResult = {
     tokenAddress: input.tokenAddress,
     marketAddress: input.marketAddress,
+    quoteAddress: input.quoteAddress,
     spenderAddress: input.spenderAddress,
     walletAddress: input.walletAddress,
     probe: {
@@ -147,6 +151,7 @@ export async function readTokenOnboardingProbe(input: TokenOnboardingProbeInput)
       const quoted = await input.client.readContract({
         ...buildDirectSellQuoteRead({
           marketAddress: input.marketAddress,
+          quoteAddress: input.quoteAddress,
           tokenAddress: input.tokenAddress,
           amountIn: quoteAmountRaw,
         }),
@@ -191,8 +196,13 @@ export async function readTokenOnboardingProbe(input: TokenOnboardingProbeInput)
 export async function readTokenOnboardingProbeFast(input: TokenOnboardingFastProbeInput): Promise<TokenOnboardingProbeResult> {
   const urls = [...new Set(input.rpcUrls.map((url) => url.trim()).filter(Boolean))];
   if (urls.length === 0) throw new Error('token onboarding probe requires at least one RPC URL');
-  if (!isAddress(input.tokenAddress) || !isAddress(input.marketAddress) || !isAddress(input.spenderAddress)) {
-    throw new Error('token onboarding probe requires valid token, market, and spender addresses');
+  if (
+    !isAddress(input.tokenAddress) ||
+    !isAddress(input.marketAddress) ||
+    (input.quoteAddress !== undefined && !isAddress(input.quoteAddress)) ||
+    !isAddress(input.spenderAddress)
+  ) {
+    throw new Error('token onboarding probe requires valid token, market, quote, and spender addresses');
   }
   const results = await Promise.allSettled(urls.map((url) => readTokenOnboardingProbe({
     ...input,
@@ -211,6 +221,7 @@ export function buildTokenOnboardingCandidateEnv(input: TokenOnboardingCandidate
   const env = { ...input.env };
   const token = normalizeAddress(input.tokenAddress);
   const market = normalizeAddress(input.marketAddress);
+  const quote = input.quoteAddress ? normalizeAddress(input.quoteAddress) : undefined;
   const spender = normalizeAddress(input.spenderAddress);
 
   if (input.symbol) {
@@ -232,6 +243,9 @@ export function buildTokenOnboardingCandidateEnv(input: TokenOnboardingCandidate
     token,
     market,
   );
+  if (quote) {
+    env.EXIT_ENGINE_QUOTE_ADDRESS = quote;
+  }
   env.EXIT_ENGINE_TOKEN_SPENDERS = appendAddressValue(
     env.EXIT_ENGINE_TOKEN_SPENDERS ?? env.AUTO_SELL_TOKEN_SPENDERS,
     token,
