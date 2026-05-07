@@ -52,13 +52,15 @@ Controls:
 Risk:
 
 - `amountOutMin=0` or stale quote exposes the sell to unnecessary loss.
+- quote failure means the configured market may not support the token at all.
 
 Controls:
 
 - reference-based min-out from trigger price,
 - quote-based min-out only when route quote is reliable,
 - required nonzero min-out for live trading,
-- token-level slippage policy.
+- token-level slippage policy,
+- direct sell quote gate must pass before any approval or sell submission.
 
 ### Gas / Fee Too Low
 

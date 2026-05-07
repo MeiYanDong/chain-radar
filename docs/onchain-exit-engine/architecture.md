@@ -56,6 +56,7 @@ Checks:
 
 - token is configured,
 - route is verified or allowed,
+- direct sell quote succeeds before approval or sell submission,
 - allowance is ready,
 - wallet has gas,
 - slippage mode is nonzero when required,

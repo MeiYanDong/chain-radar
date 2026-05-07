@@ -490,6 +490,7 @@ async function buildAmountOutMin(
     tokenAddress: Address;
     amountIn: bigint;
     tokenDecimals: number;
+    prequotedAmountOut?: bigint;
     referenceTokenAmount?: number;
     referenceVirtualSpent?: number;
   },
@@ -497,16 +498,16 @@ async function buildAmountOutMin(
   const mode = autoSellMinOutMode();
   if (mode === 'zero') {
     if (requireNonzeroMinOut()) throw new Error('AUTO_SELL_REQUIRE_NONZERO_MIN_OUT=1 but AUTO_SELL_MIN_OUT_MODE=zero');
-    return { amountOutMin: 0n, minOutSource: 'zero' };
+    return { amountOutMin: 0n, quotedAmountOut: input.prequotedAmountOut, minOutSource: 'zero' };
   }
   if (mode === 'reference') {
     const reference = buildReferenceAmountOutMin(input);
-    if (reference) return { ...reference, minOutSource: 'reference' };
+    if (reference) return { ...reference, quotedAmountOut: input.prequotedAmountOut, minOutSource: 'reference' };
     if (requireNonzeroMinOut()) throw new Error('reference amountOutMin unavailable');
-    return { amountOutMin: 0n, minOutSource: 'zero' };
+    return { amountOutMin: 0n, quotedAmountOut: input.prequotedAmountOut, minOutSource: 'zero' };
   }
   try {
-    const quoted = await readFast(bundles, (client) => client.readContract({
+    const quoted = input.prequotedAmountOut ?? await readFast(bundles, (client) => client.readContract({
       ...buildDirectSellQuoteRead(input),
     }));
     if (quoted <= 0n) throw new Error('quote returned zero');
@@ -521,6 +522,25 @@ async function buildAmountOutMin(
     }
     if (requireNonzeroMinOut() || !currentExitEngineConfig().risk.fallbackMinOutZero) throw err;
     return { amountOutMin: 0n, minOutSource: 'zero' };
+  }
+}
+
+async function verifyDirectSellRouteQuote(
+  bundles: RpcBundle[],
+  input: {
+    marketAddress: Address;
+    tokenAddress: Address;
+    amountIn: bigint;
+  },
+): Promise<{ ok: boolean; quotedAmountOut?: bigint; error?: string }> {
+  try {
+    const quoted = await readFast(bundles, (client) => client.readContract({
+      ...buildDirectSellQuoteRead(input),
+    }));
+    if (quoted <= 0n) return { ok: false, error: 'quote returned zero' };
+    return { ok: true, quotedAmountOut: quoted };
+  } catch (err) {
+    return { ok: false, error: shortError(err) };
   }
 }
 
@@ -658,6 +678,7 @@ export async function buildAutoSellReadinessReport(options: AutoSellReadinessOpt
   } else {
     addCheck('nonzero_min_out', 'warn', 'AUTO_SELL_REQUIRE_NONZERO_MIN_OUT is not enabled');
   }
+  addCheck('direct_quote_gate', 'pass', 'direct sell route quote is required before approve or sell submission');
   addCheck('fee_mode', feeMode === 'dynamic' ? 'pass' : 'warn', `fee mode=${feeMode}`);
   addCheck(
     'sell_queue',
@@ -911,6 +932,23 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
         };
       }
 
+      const quoteGate = await verifyDirectSellRouteQuote(bundles, {
+        marketAddress,
+        tokenAddress,
+        amountIn,
+      });
+      if (!quoteGate.ok || quoteGate.quotedAmountOut === undefined) {
+        releaseTokenSellLock(tokenLock.key);
+        return {
+          status: 'failed',
+          ...baseResult,
+          tokenAmount: formatUnits(amountIn, decimals),
+          error: `direct sell route quote failed: ${quoteGate.error ?? 'unknown error'}`,
+          detectedToSubmitMs: Date.now() - input.detectedAtMs,
+          submitMode: autoSellSubmitMode(),
+        };
+      }
+
       let approveTxHash: Hash | undefined;
       if (!hasPreapprovedAllowance(tokenAddress, approvalSpenderAddress)) {
         const allowance = await readFast(bundles, (client) => client.readContract({
@@ -961,6 +999,7 @@ export async function executeAutoSell(input: AutoSellInput): Promise<AutoSellRes
         tokenAddress,
         amountIn,
         tokenDecimals: decimals,
+        prequotedAmountOut: quoteGate.quotedAmountOut,
         referenceTokenAmount: input.referenceTokenAmount,
         referenceVirtualSpent: input.referenceVirtualSpent,
       });
@@ -1039,4 +1078,5 @@ export const __autoSellTest = {
   runQueued<T>(run: (queue: { queueWaitMs: number; queuePosition: number }) => Promise<T>) {
     return withAutoSellQueue(run);
   },
+  verifyDirectSellRouteQuote,
 };

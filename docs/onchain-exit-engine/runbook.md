@@ -37,6 +37,8 @@ If the configured market quote fails, the checker can scan recent Blockscout tok
 
 A new token is not live-ready just because the address exists. The checker must at least classify it as dry-run-ready first, then the operator should do a small verified sell before marking the route live.
 
+The execution path also enforces a direct quote gate. If `getAmountsOut` fails or returns zero for the configured market/token pair, the engine returns `failed` before any approval or sell transaction is submitted.
+
 Deployment hosts may need a compiled runtime command, but the host path, service manager, and environment files are deployment-specific and intentionally not defined here.
 
 ## Recovery Checklist

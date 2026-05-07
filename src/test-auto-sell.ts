@@ -95,6 +95,7 @@ try {
   assert.ok(report.issues.some((issue) => issue.key === 'enabled'));
   assert.ok(report.issues.some((issue) => issue.key === 'private_key'));
   assert.ok(report.checks.some((check) => check.key === 'sell_queue' && check.status === 'pass'));
+  assert.ok(report.checks.some((check) => check.key === 'direct_quote_gate' && check.status === 'pass'));
 
   const monday1550Beijing = new Date('2026-05-04T07:50:00.000Z');
   const monday1601Beijing = new Date('2026-05-04T08:01:00.000Z');
@@ -214,6 +215,54 @@ try {
   assert.equal(firstQueue.queuePosition, 0);
   assert.equal(secondQueue.queuePosition, 1);
   assert.ok(secondQueue.queueWaitMs >= firstQueue.queueWaitMs);
+
+  const quotePass = await __autoSellTest.verifyDirectSellRouteQuote([
+    {
+      publicClient: {
+        async readContract() {
+          return 123n;
+        },
+      },
+    },
+  ] as any, {
+    marketAddress: canonicalMarket as any,
+    tokenAddress: novaToken as any,
+    amountIn: 10n ** 18n,
+  });
+  assert.equal(quotePass.ok, true);
+  assert.equal(quotePass.quotedAmountOut, 123n);
+
+  const quoteZero = await __autoSellTest.verifyDirectSellRouteQuote([
+    {
+      publicClient: {
+        async readContract() {
+          return 0n;
+        },
+      },
+    },
+  ] as any, {
+    marketAddress: canonicalMarket as any,
+    tokenAddress: novaToken as any,
+    amountIn: 10n ** 18n,
+  });
+  assert.equal(quoteZero.ok, false);
+  assert.equal(quoteZero.error, 'quote returned zero');
+
+  const quoteRevert = await __autoSellTest.verifyDirectSellRouteQuote([
+    {
+      publicClient: {
+        async readContract() {
+          throw new Error('execution reverted');
+        },
+      },
+    },
+  ] as any, {
+    marketAddress: canonicalMarket as any,
+    tokenAddress: novaToken as any,
+    amountIn: 10n ** 18n,
+  });
+  assert.equal(quoteRevert.ok, false);
+  assert.match(quoteRevert.error ?? '', /execution reverted/);
 
   let simulatedLargeBuyCases = 0;
   function assertLargeBuyCase(
