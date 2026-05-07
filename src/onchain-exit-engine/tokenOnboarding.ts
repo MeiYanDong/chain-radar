@@ -74,6 +74,14 @@ function addIssue(
   code: string,
   message: string,
 ) {
+  const existing = issues.find((issue) => issue.code === code);
+  if (existing) {
+    if (existing.level === 'warning' && level === 'error') {
+      existing.level = 'error';
+      existing.message = message;
+    }
+    return;
+  }
   issues.push({ level, code, message });
 }
 

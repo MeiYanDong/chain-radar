@@ -105,12 +105,12 @@ assert.equal(validation.ok, false);
 assert.ok(issueCodes(validation).includes('route_not_live'));
 
 const perTokenRegistry = buildTokenRouteRegistryFromEnv({
-  AUTO_SELL_TOKEN_SYMBOLS: `${token}:NOVA,${otherToken}:ALT`,
-  AUTO_SELL_TOKEN_DECIMALS: `${token}:18,${otherToken}:9`,
+  EXIT_ENGINE_TOKEN_SYMBOLS: `${token}:NOVA,${otherToken}:ALT`,
+  EXIT_ENGINE_TOKEN_DECIMALS: `${token}:18,${otherToken}:9`,
   AUTO_SELL_MARKET_ADDRESS: DEFAULT_DIRECT_MARKET_ADDRESS,
   EXIT_ENGINE_TOKEN_MARKETS: `${otherToken}:${wrongMarket}`,
   EXIT_ENGINE_TOKEN_SPENDERS: `${otherToken}:${wrongSpender}`,
-  AUTO_SELL_PREAPPROVED_ALLOWANCES: `${otherToken}:${wrongSpender}`,
+  EXIT_ENGINE_PREAPPROVED_ALLOWANCES: `${otherToken}:${wrongSpender}`,
   EXIT_ENGINE_VERIFIED_SELL_ROUTES: `${otherToken}:${wrongMarket}:${wrongSpender}`,
 });
 assert.equal(getTokenRoute(perTokenRegistry, token)?.marketAddress, DEFAULT_DIRECT_MARKET_ADDRESS.toLowerCase());

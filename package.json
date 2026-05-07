@@ -37,7 +37,8 @@
     "exit-engine:rpc:test": "tsx src/test-rpc-runtime.ts",
     "exit-engine:config:test": "tsx src/test-config-schema.ts",
     "exit-engine:onboarding:test": "tsx src/test-token-onboarding.ts",
-    "exit-engine:test": "npm run exit-engine:state:test && npm run exit-engine:route:test && npm run exit-engine:nonce:test && npm run exit-engine:trigger:test && npm run exit-engine:direct:test && npm run exit-engine:receipt:test && npm run exit-engine:tx:test && npm run exit-engine:submission:test && npm run exit-engine:audit:test && npm run exit-engine:storage:test && npm run exit-engine:rpc:test && npm run exit-engine:config:test && npm run exit-engine:onboarding:test",
+    "exit-engine:onboarding-probe:test": "tsx src/test-token-onboarding-probe.ts",
+    "exit-engine:test": "npm run exit-engine:state:test && npm run exit-engine:route:test && npm run exit-engine:nonce:test && npm run exit-engine:trigger:test && npm run exit-engine:direct:test && npm run exit-engine:receipt:test && npm run exit-engine:tx:test && npm run exit-engine:submission:test && npm run exit-engine:audit:test && npm run exit-engine:storage:test && npm run exit-engine:rpc:test && npm run exit-engine:config:test && npm run exit-engine:onboarding:test && npm run exit-engine:onboarding-probe:test",
     "notification-card:drill": "tsx src/drill-real-notification-card.ts",
     "build": "tsc"
   },

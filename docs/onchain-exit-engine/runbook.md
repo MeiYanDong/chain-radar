@@ -27,9 +27,12 @@ Token onboarding command shape:
 ```bash
 npm run exit-engine:token-check -- <tokenAddress> --allow-dry-run
 npm run exit-engine:token-check -- <tokenAddress> --require-large-buy
+npm run exit-engine:token-check -- <tokenAddress> --no-network
 ```
 
-The token check is read-only. A new token is not live-ready just because the address exists. The checker must at least classify it as dry-run-ready first, then the operator should run quote / allowance / balance probes and a small verified sell before marking the route live.
+The token check is read-only. With RPC configured, it probes token `symbol`, `decimals`, direct sell quote, wallet balance, and spender allowance. It does not submit approvals or sells.
+
+A new token is not live-ready just because the address exists. The checker must at least classify it as dry-run-ready first, then the operator should do a small verified sell before marking the route live.
 
 Deployment hosts may need a compiled runtime command, but the host path, service manager, and environment files are deployment-specific and intentionally not defined here.
 

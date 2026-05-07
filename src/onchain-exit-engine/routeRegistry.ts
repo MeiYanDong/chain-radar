@@ -132,12 +132,12 @@ function routeExecutionMode(
 }
 
 export function buildTokenRouteRegistryFromEnv(env: EnvLike = process.env): TokenRouteRegistry {
-  const symbolsByToken = parseAddressValueEnv(env.AUTO_SELL_TOKEN_SYMBOLS);
-  const decimalsByToken = parseAddressNumberEnv(env.AUTO_SELL_TOKEN_DECIMALS);
+  const symbolsByToken = parseAddressValueEnv(env.EXIT_ENGINE_TOKEN_SYMBOLS ?? env.AUTO_SELL_TOKEN_SYMBOLS);
+  const decimalsByToken = parseAddressNumberEnv(env.EXIT_ENGINE_TOKEN_DECIMALS ?? env.AUTO_SELL_TOKEN_DECIMALS);
   const marketsByToken = parseAddressValueEnv(env.EXIT_ENGINE_TOKEN_MARKETS ?? env.AUTO_SELL_TOKEN_MARKETS);
   const spendersByToken = parseAddressValueEnv(env.EXIT_ENGINE_TOKEN_SPENDERS ?? env.AUTO_SELL_TOKEN_SPENDERS);
   const backendByToken = parseAddressValueEnv(env.EXIT_ENGINE_BACKEND_POLICIES);
-  const preapprovedPairs = parsePreapprovedPairs(env.AUTO_SELL_PREAPPROVED_ALLOWANCES);
+  const preapprovedPairs = parsePreapprovedPairs(env.EXIT_ENGINE_PREAPPROVED_ALLOWANCES ?? env.AUTO_SELL_PREAPPROVED_ALLOWANCES);
   const verifiedRoutes = parseVerifiedRoutes(env.EXIT_ENGINE_VERIFIED_SELL_ROUTES);
   const globalMarket = env.AUTO_SELL_MARKET_ADDRESS || DEFAULT_DIRECT_MARKET_ADDRESS;
   const globalSpender = env.AUTO_SELL_APPROVAL_SPENDER_ADDRESS || globalMarket;

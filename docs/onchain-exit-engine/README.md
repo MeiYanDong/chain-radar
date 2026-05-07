@@ -27,7 +27,8 @@ Do not move secrets, runtime databases, server logs, wallet balances, or cloud i
 8. [OKX API Backend Roadmap](./okx-api-backend.md)
 9. [Extraction Decision](./extraction-decision.md)
 10. [Change Review](./change-review.md)
-11. [Postmortems](./postmortems/README.md)
+11. [Token Onboarding Smoke Tests](./token-onboarding-smoke.md)
+12. [Postmortems](./postmortems/README.md)
 
 ## Source-Of-Truth Rule
 
@@ -41,6 +42,7 @@ Do not move secrets, runtime databases, server logs, wallet balances, or cloud i
 - `okx-api-backend.md`: secondary backend roadmap and safety gates.
 - `extraction-decision.md`: current repo-extraction decision and blockers.
 - `change-review.md`: current worktree grouping for safe commits and public sync.
+- `token-onboarding-smoke.md`: public-safe read-only evidence for token onboarding checks.
 - `postmortems/`: evidence records that should shape future design.
 
 If a document conflicts with live code or a verified transaction/log, preserve the evidence and update the document.

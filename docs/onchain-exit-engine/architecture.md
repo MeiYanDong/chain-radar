@@ -148,6 +148,7 @@ Current source files:
 - `src/onchain-exit-engine/rpcRuntime.ts`: RPC runtime boundary; owns Base RPC client creation, fast reads, broadcast bundle resolution, primary direct sell submit, ERC20 approval submit, and raw multi-RPC broadcast.
 - `src/onchain-exit-engine/configSchema.ts`: public-safe config boundary; defines neutral `EXIT_ENGINE_*` config, legacy env compatibility, private-key / RPC redaction, route settings, RPC settings, execution settings, risk settings, and integration settings.
 - `src/onchain-exit-engine/tokenOnboarding.ts`: new token gate; classifies token additions into live-ready, dry-run-ready, approval-required, monitor-only, or blocked before a route can be used live.
+- `src/onchain-exit-engine/tokenOnboardingProbe.ts`: read-only RPC probe for token symbol, decimals, direct sell quote, wallet balance, spender allowance, and candidate route overlay.
 - `src/checkTokenOnboarding.ts`: local read-only CLI wrapper for the token onboarding gate.
 - `src/watcher.ts`: trigger detection, buyback monitor, receipt follow-up, alerts; official-buyback executor, large-buy fallback, Flashblocks WS, RPC URL, token metadata, preapproval, market, and spender trigger settings now come from `ExitEngineConfig`, and auto-sell execution persistence now goes through the storage adapter.
 - `src/autoSell.ts`: direct sell execution and readiness report; it now consumes `ExitEngineConfig` instead of reading legacy env keys directly, while delegating transaction construction, submission policy, RPC runtime, receipt finalization, and audit record construction to engine modules.
@@ -166,6 +167,7 @@ Current source files:
 - `src/test-rpc-runtime.ts`: RPC runtime tests for RPC URL resolution, broadcast URL ordering, bundle reuse, and ERC20 approval request construction.
 - `src/test-config-schema.ts`: config schema tests for native env, legacy env, unsafe live env, and public-safe summary redaction.
 - `src/test-token-onboarding.ts`: token onboarding tests for invalid token, missing route, verified live route, unverified route, missing approval, zero quote, monitor-only route, OKX quote-only route, and large-buy allowlist rejection.
+- `src/test-token-onboarding-probe.ts`: token onboarding probe tests for read-only metadata, quote, balance, allowance, and candidate route env overlay.
 
 Target direction:
 

@@ -93,4 +93,6 @@ Current decision: do not extract yet. See [Extraction Decision](./extraction-dec
 - [x] Require token route, symbol, decimals, market, spender, preapproval, verified sell route, quote, allowance, and large-buy eligibility checks before live status.
 - [x] Add a read-only CLI entrypoint for local token checks.
 - [x] Add tests for invalid token, missing route, unverified route, missing approval, zero quote, monitor-only route, OKX quote-only route, large-buy allowlist rejection, and fully live-ready route.
-- [ ] Add Chainstack read-only probes for symbol / decimals / quote / allowance / balance so the CLI can move from static config gate to live read-only gate.
+- [x] Add Chainstack/RPC read-only probes for symbol / decimals / quote / allowance / balance so the CLI can move from static config gate to live read-only gate.
+- [x] Run a documented real read-only RPC smoke test against ZMAC and archive the public-safe result.
+- [ ] Add token-specific market / spender discovery before judging non-default Virtuals markets.

@@ -43,9 +43,11 @@ Current source:
 
 - `src/onchain-exit-engine/configSchema.ts`
 - `src/onchain-exit-engine/tokenOnboarding.ts`
+- `src/onchain-exit-engine/tokenOnboardingProbe.ts`
 - `src/checkTokenOnboarding.ts`
 - `src/test-config-schema.ts`
 - `src/test-token-onboarding.ts`
+- `src/test-token-onboarding-probe.ts`
 
 Current guarantees:
 
@@ -62,6 +64,7 @@ Current guarantees:
   - missing approval -> approval-required,
   - unverified or unchecked route -> dry-run-ready,
   - verified direct route with non-zero quote and sufficient allowance -> live-ready.
+- token onboarding can use read-only RPC probes to fill candidate symbol / decimals / quote / allowance / balance without mutating `.env` or submitting transactions.
 
 ## Extraction Rule
 
