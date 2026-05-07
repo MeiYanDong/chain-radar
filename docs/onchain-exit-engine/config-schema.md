@@ -30,14 +30,22 @@ The future standalone engine should prefer neutral `EXIT_ENGINE_*` keys. The cur
 | `EXIT_ENGINE_LARGE_BUY_VIRTUAL_USD_FALLBACK` | `BUYBACK_LARGE_BUY_VIRTUAL_USD_FALLBACK` | no | Fallback VIRTUAL/USD price for USD threshold checks. |
 | `EXIT_ENGINE_TOKEN_SYMBOLS` | `AUTO_SELL_TOKEN_SYMBOLS` | no | Token-address to symbol mapping. |
 | `EXIT_ENGINE_TOKEN_DECIMALS` | `AUTO_SELL_TOKEN_DECIMALS` | no | Token-address to decimals mapping. |
+| `EXIT_ENGINE_TOKEN_MARKETS` | `AUTO_SELL_TOKEN_MARKETS` | no | Optional token-address to market-address mapping for per-token routes. |
+| `EXIT_ENGINE_TOKEN_SPENDERS` | `AUTO_SELL_TOKEN_SPENDERS` | no | Optional token-address to approval-spender-address mapping. |
 | `EXIT_ENGINE_PREAPPROVED_ALLOWANCES` | `AUTO_SELL_PREAPPROVED_ALLOWANCES` | no | Token-address to spender-address mapping. |
+| `EXIT_ENGINE_VERIFIED_SELL_ROUTES` | — | no | Token:market:spender triples that have passed a small real sell receipt check. |
+| `EXIT_ENGINE_BACKEND_POLICIES` | — | no | Optional token-address to backend policy mapping: `direct`, `okx_quote_only`, or `alert_only`. |
+| `EXIT_ENGINE_UNVERIFIED_ROUTE_MODE` | — | no | `alert_only` or `dry_run` for routes without verified sell receipts. |
 
 ## Code Boundary
 
 Current source:
 
 - `src/onchain-exit-engine/configSchema.ts`
+- `src/onchain-exit-engine/tokenOnboarding.ts`
+- `src/checkTokenOnboarding.ts`
 - `src/test-config-schema.ts`
+- `src/test-token-onboarding.ts`
 
 Current guarantees:
 
@@ -48,6 +56,12 @@ Current guarantees:
 - disabling public broadcast also disables primary fallback unless primary fallback is explicitly enabled,
 - public summary only reports booleans, counts, modes, and numeric policy values,
 - public summary omits private key values, full RPC URLs, and `bigint` gas values.
+- token onboarding classifies new routes before live use:
+  - invalid / missing / wrong route -> blocked,
+  - alert-only backend -> monitor-only,
+  - missing approval -> approval-required,
+  - unverified or unchecked route -> dry-run-ready,
+  - verified direct route with non-zero quote and sufficient allowance -> live-ready.
 
 ## Extraction Rule
 

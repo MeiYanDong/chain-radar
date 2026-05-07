@@ -22,6 +22,15 @@ Health check command shape:
 npm run auto-sell:health
 ```
 
+Token onboarding command shape:
+
+```bash
+npm run exit-engine:token-check -- <tokenAddress> --allow-dry-run
+npm run exit-engine:token-check -- <tokenAddress> --require-large-buy
+```
+
+The token check is read-only. A new token is not live-ready just because the address exists. The checker must at least classify it as dry-run-ready first, then the operator should run quote / allowance / balance probes and a small verified sell before marking the route live.
+
 Deployment hosts may need a compiled runtime command, but the host path, service manager, and environment files are deployment-specific and intentionally not defined here.
 
 ## Recovery Checklist

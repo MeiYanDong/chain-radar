@@ -85,3 +85,12 @@ Current decision: do not extract yet. See [Extraction Decision](./extraction-dec
 - [x] Move watcher trigger env reads to the neutral config boundary before extracting to a standalone repo.
 - [x] Move audit persistence behind an engine storage adapter before extracting to a standalone repo.
 - [x] Decide final repo extraction timing: do not extract automatically now; if extracting later, copy only public-safe engine files.
+
+## Phase 10: Token Onboarding Gate
+
+- [x] Add a reusable token onboarding validator.
+- [x] Classify new tokens as `blocked`, `monitor_only`, `approval_required`, `dry_run_ready`, or `live_ready`.
+- [x] Require token route, symbol, decimals, market, spender, preapproval, verified sell route, quote, allowance, and large-buy eligibility checks before live status.
+- [x] Add a read-only CLI entrypoint for local token checks.
+- [x] Add tests for invalid token, missing route, unverified route, missing approval, zero quote, monitor-only route, OKX quote-only route, large-buy allowlist rejection, and fully live-ready route.
+- [ ] Add Chainstack read-only probes for symbol / decimals / quote / allowance / balance so the CLI can move from static config gate to live read-only gate.

@@ -50,6 +50,7 @@ type ExitTrigger = {
 Purpose:
 
 - prevent wrong-token, wrong-route, duplicate, unsafe, or underfunded exits.
+- classify new token additions before they can become live routes.
 
 Checks:
 
@@ -61,6 +62,14 @@ Checks:
 - trigger threshold is strict,
 - token sell lock is available,
 - nonce manager can reserve or queue.
+
+New token onboarding decisions:
+
+- `blocked`: invalid address, missing route, wrong market / spender, zero quote, or required trigger eligibility failure.
+- `monitor_only`: alerts are allowed, but direct sell is not.
+- `approval_required`: token route exists, but spender approval is not ready.
+- `dry_run_ready`: route can be tested without submitting live sells.
+- `live_ready`: direct route is verified, quote is non-zero, allowance is sufficient, balance is non-zero if checked, and the route has a verified small-sell receipt.
 
 ### Execution Backend
 
@@ -138,6 +147,8 @@ Current source files:
 - `src/onchain-exit-engine/storageAdapter.ts`: storage adapter boundary; defines the persistence port for saving execution records and receipt updates without importing `src/db.ts` into engine core.
 - `src/onchain-exit-engine/rpcRuntime.ts`: RPC runtime boundary; owns Base RPC client creation, fast reads, broadcast bundle resolution, primary direct sell submit, ERC20 approval submit, and raw multi-RPC broadcast.
 - `src/onchain-exit-engine/configSchema.ts`: public-safe config boundary; defines neutral `EXIT_ENGINE_*` config, legacy env compatibility, private-key / RPC redaction, route settings, RPC settings, execution settings, risk settings, and integration settings.
+- `src/onchain-exit-engine/tokenOnboarding.ts`: new token gate; classifies token additions into live-ready, dry-run-ready, approval-required, monitor-only, or blocked before a route can be used live.
+- `src/checkTokenOnboarding.ts`: local read-only CLI wrapper for the token onboarding gate.
 - `src/watcher.ts`: trigger detection, buyback monitor, receipt follow-up, alerts; official-buyback executor, large-buy fallback, Flashblocks WS, RPC URL, token metadata, preapproval, market, and spender trigger settings now come from `ExitEngineConfig`, and auto-sell execution persistence now goes through the storage adapter.
 - `src/autoSell.ts`: direct sell execution and readiness report; it now consumes `ExitEngineConfig` instead of reading legacy env keys directly, while delegating transaction construction, submission policy, RPC runtime, receipt finalization, and audit record construction to engine modules.
 - `src/db.ts`: audit tables.
@@ -154,6 +165,7 @@ Current source files:
 - `src/test-storage-adapter.ts`: storage adapter tests for injected save/update persistence ports and receipt-finalization application.
 - `src/test-rpc-runtime.ts`: RPC runtime tests for RPC URL resolution, broadcast URL ordering, bundle reuse, and ERC20 approval request construction.
 - `src/test-config-schema.ts`: config schema tests for native env, legacy env, unsafe live env, and public-safe summary redaction.
+- `src/test-token-onboarding.ts`: token onboarding tests for invalid token, missing route, verified live route, unverified route, missing approval, zero quote, monitor-only route, OKX quote-only route, and large-buy allowlist rejection.
 
 Target direction:
 
