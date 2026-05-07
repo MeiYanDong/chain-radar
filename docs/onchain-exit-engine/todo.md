@@ -95,4 +95,5 @@ Current decision: do not extract yet. See [Extraction Decision](./extraction-dec
 - [x] Add tests for invalid token, missing route, unverified route, missing approval, zero quote, monitor-only route, OKX quote-only route, large-buy allowlist rejection, and fully live-ready route.
 - [x] Add Chainstack/RPC read-only probes for symbol / decimals / quote / allowance / balance so the CLI can move from static config gate to live read-only gate.
 - [x] Run a documented real read-only RPC smoke test against ZMAC and archive the public-safe result.
-- [ ] Add token-specific market / spender discovery before judging non-default Virtuals markets.
+- [x] Add token-specific market / spender discovery from recent token transfer contract candidates before judging non-default Virtuals markets.
+- [ ] Expand route discovery beyond token transfers if a target token only exposes routes through factory events or non-transfer registry metadata.

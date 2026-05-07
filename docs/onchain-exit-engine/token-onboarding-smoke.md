@@ -19,8 +19,9 @@ Result:
 - quote probe: failed; `getAmountsOut` reverted
 - allowance probe: read succeeded
 - balance probe: read succeeded, but the execution wallet had no usable ZMAC position
+- route discovery: checked 40 transfer-derived candidates; 0 candidates returned a non-zero direct sell quote
 - onboarding decision: `blocked`
 
 Interpretation:
 
-The token metadata is readable, but this token is not eligible for direct dry-run or live sell through the default market address. Before using ZMAC or a similar token, the route must discover the correct token-specific market / spender, then rerun the read-only quote and allowance checks. A successful quote is still not enough for live mode; live mode also requires preapproval and a small verified sell receipt.
+The token metadata is readable, but this token is not eligible for direct dry-run or live sell through the default market address. Transfer-derived route discovery also found no quoteable direct sell candidate. Before using ZMAC or a similar token, the route must discover the correct token-specific market / spender through another source, then rerun the read-only quote and allowance checks. A successful quote is still not enough for live mode; live mode also requires preapproval and a small verified sell receipt.

@@ -44,10 +44,12 @@ Current source:
 - `src/onchain-exit-engine/configSchema.ts`
 - `src/onchain-exit-engine/tokenOnboarding.ts`
 - `src/onchain-exit-engine/tokenOnboardingProbe.ts`
+- `src/onchain-exit-engine/tokenRouteDiscovery.ts`
 - `src/checkTokenOnboarding.ts`
 - `src/test-config-schema.ts`
 - `src/test-token-onboarding.ts`
 - `src/test-token-onboarding-probe.ts`
+- `src/test-token-route-discovery.ts`
 
 Current guarantees:
 
@@ -65,6 +67,7 @@ Current guarantees:
   - unverified or unchecked route -> dry-run-ready,
   - verified direct route with non-zero quote and sufficient allowance -> live-ready.
 - token onboarding can use read-only RPC probes to fill candidate symbol / decimals / quote / allowance / balance without mutating `.env` or submitting transactions.
+- token route discovery can use public Blockscout token transfers to test token-specific market candidates, but it still requires a non-zero direct quote before using a discovered route.
 
 ## Extraction Rule
 

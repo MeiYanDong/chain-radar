@@ -194,10 +194,17 @@ export async function readTokenOnboardingProbeFast(input: TokenOnboardingFastPro
   if (!isAddress(input.tokenAddress) || !isAddress(input.marketAddress) || !isAddress(input.spenderAddress)) {
     throw new Error('token onboarding probe requires valid token, market, and spender addresses');
   }
-  return Promise.any(urls.map((url) => readTokenOnboardingProbe({
+  const results = await Promise.allSettled(urls.map((url) => readTokenOnboardingProbe({
     ...input,
     client: createReadClient(url, input.readTimeoutMs),
   })));
+  const fulfilled = results
+    .filter((result): result is PromiseFulfilledResult<TokenOnboardingProbeResult> => result.status === 'fulfilled')
+    .map((result) => result.value);
+  if (fulfilled.length === 0) throw new Error('all token onboarding probes failed');
+  return fulfilled.find((result) => result.probe.quote?.status === 'pass') ??
+    fulfilled.find((result) => result.decimals !== undefined) ??
+    fulfilled[0];
 }
 
 export function buildTokenOnboardingCandidateEnv(input: TokenOnboardingCandidateEnvInput): Record<string, string | undefined> {

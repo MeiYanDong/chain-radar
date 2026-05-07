@@ -27,10 +27,13 @@ Token onboarding command shape:
 ```bash
 npm run exit-engine:token-check -- <tokenAddress> --allow-dry-run
 npm run exit-engine:token-check -- <tokenAddress> --require-large-buy
+npm run exit-engine:token-check -- <tokenAddress> --no-discovery
 npm run exit-engine:token-check -- <tokenAddress> --no-network
 ```
 
 The token check is read-only. With RPC configured, it probes token `symbol`, `decimals`, direct sell quote, wallet balance, and spender allowance. It does not submit approvals or sells.
+
+If the configured market quote fails, the checker can scan recent Blockscout token transfers for contract counterparties and test them as token-specific market candidates. Only a candidate with a non-zero `getAmountsOut` quote can become the discovered market. If no candidate quotes, the token stays blocked.
 
 A new token is not live-ready just because the address exists. The checker must at least classify it as dry-run-ready first, then the operator should do a small verified sell before marking the route live.
 

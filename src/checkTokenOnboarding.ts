@@ -12,6 +12,10 @@ import {
   readTokenOnboardingProbeFast,
   type TokenOnboardingProbeResult,
 } from './onchain-exit-engine/tokenOnboardingProbe.js';
+import {
+  discoverDirectSellRouteFast,
+  type TokenRouteDiscoveryResult,
+} from './onchain-exit-engine/tokenRouteDiscovery.js';
 
 function argValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -39,11 +43,16 @@ if (!tokenAddress) {
 const config = buildExitEngineConfigFromEnv(process.env);
 const requireLive = !process.argv.includes('--allow-dry-run');
 const checkNetwork = !process.argv.includes('--no-network');
-const marketAddress = argValue('--market') || config.route.marketAddress || DIRECT_SELL_DEFAULT_MARKET_ADDRESS;
-const spenderAddress = argValue('--spender') || config.route.approvalSpenderAddress || marketAddress;
+const discoverMarket = checkNetwork && !process.argv.includes('--no-discovery');
+const marketArg = argValue('--market');
+const spenderArg = argValue('--spender');
+let marketAddress = marketArg || config.route.marketAddress || DIRECT_SELL_DEFAULT_MARKET_ADDRESS;
+let spenderAddress = spenderArg || config.route.approvalSpenderAddress || marketAddress;
 let registryEnv: Record<string, string | undefined> = process.env;
 let probeResult: TokenOnboardingProbeResult | undefined;
 let probeError: string | undefined;
+let discoveryResult: TokenRouteDiscoveryResult | undefined;
+let discoveryError: string | undefined;
 
 function walletAddressFromConfig(): Address | undefined {
   const privateKey = config.wallet.privateKey;
@@ -94,6 +103,52 @@ if (
   }
 }
 
+if (
+  discoverMarket &&
+  probeResult?.quoteAmountRaw !== undefined &&
+  probeResult.probe.quote?.status !== 'pass' &&
+  isAddress(tokenAddress) &&
+  isAddress(marketAddress) &&
+  (config.rpc.primaryUrl || config.rpc.fallbackUrls.length > 0)
+) {
+  try {
+    discoveryResult = await discoverDirectSellRouteFast({
+      rpcUrls: [config.rpc.primaryUrl, ...config.rpc.fallbackUrls].filter(Boolean) as string[],
+      readTimeoutMs: config.rpc.readTimeoutMs,
+      tokenAddress: tokenAddress as Address,
+      quoteAmountRaw: probeResult.quoteAmountRaw,
+      configuredMarketAddress: marketAddress as Address,
+      maxCandidates: 40,
+      maxTransferPages: 5,
+      maxTransfers: 250,
+    });
+    if (discoveryResult.selected) {
+      marketAddress = discoveryResult.selected.address;
+      if (!spenderArg) spenderAddress = discoveryResult.selected.address;
+      probeResult = await readTokenOnboardingProbeFast({
+        rpcUrls: [config.rpc.primaryUrl, ...config.rpc.fallbackUrls].filter(Boolean) as string[],
+        readTimeoutMs: config.rpc.readTimeoutMs,
+        tokenAddress: tokenAddress as Address,
+        marketAddress: marketAddress as Address,
+        spenderAddress: spenderAddress as Address,
+        walletAddress: walletAddressFromConfig(),
+        sellPercent: config.execution.sellPercent,
+      });
+      registryEnv = buildTokenOnboardingCandidateEnv({
+        env: process.env,
+        tokenAddress,
+        marketAddress,
+        spenderAddress,
+        symbol: probeResult.symbol,
+        decimals: probeResult.decimals,
+        allowancePreapproved: allowanceSatisfied(probeResult),
+      });
+    }
+  } catch (err) {
+    discoveryError = err instanceof Error ? err.message : String(err);
+  }
+}
+
 const registry = buildTokenRouteRegistryFromEnv(registryEnv);
 const assessment = assessTokenOnboarding({
   registry,
@@ -126,6 +181,13 @@ if (probeResult) {
   console.log(`probe=not_checked${probeError ? ` error=${probeError.slice(0, 160)}` : ''}`);
 } else {
   console.log('probe=disabled');
+}
+if (discoveryResult) {
+  console.log(`discovery=candidates:${discoveryResult.candidates.length} quoted:${discoveryResult.quotedCandidates.length} selected:${short(discoveryResult.selected?.address)}`);
+} else if (discoverMarket) {
+  console.log(`discovery=not_checked${discoveryError ? ` error=${discoveryError.slice(0, 160)}` : ''}`);
+} else {
+  console.log('discovery=disabled');
 }
 console.log(`next=${assessment.nextAction}`);
 
