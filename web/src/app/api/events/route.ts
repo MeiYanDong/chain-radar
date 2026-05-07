@@ -14,10 +14,9 @@ export async function GET() {
       intervalId = setInterval(() => {
         try {
           const db = getDb();
-          const row = db.prepare("SELECT value FROM meta WHERE key = 'last_updated'").get() as
-            | { value: string }
-            | undefined;
-          const current = row?.value ?? '';
+          const rows = db.prepare("SELECT key, value FROM meta WHERE key LIKE '%_last_updated'").all() as
+            { key: string; value: string }[];
+          const current = rows.map(r => r.value).sort().join(',');
 
           if (current && current !== lastSeen) {
             lastSeen = current;

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/input';
 
-export function AddressSearch() {
+export function AddressSearch({ tokenId = 'fat' }: { tokenId?: string }) {
   const [query, setQuery] = useState('');
   const router = useRouter();
 
@@ -12,7 +12,7 @@ export function AddressSearch() {
     e.preventDefault();
     const addr = query.trim().toLowerCase();
     if (addr.startsWith('0x') && addr.length === 42) {
-      router.push(`/address/${addr}`);
+      router.push(`/address/${addr}?token=${tokenId}`);
     }
   }
 

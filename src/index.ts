@@ -1,6 +1,6 @@
-import { client } from './rpc.js';
-import { PAIR_POOL, DECIMALS, FAT_DEPLOY_BLOCK } from './config.js';
-import { fetchAllFatTransfers } from './events.js';
+import { TOKENS, DECIMALS } from './config.js';
+import type { TokenConfig } from './config.js';
+import { fetchTokenTransfers } from './events.js';
 import { classifyTransactions } from './classifier.js';
 import { fetchVirtualPriceHistory, interpolatePrice } from './price.js';
 import { computeCostBasis } from './costBasis.js';
@@ -10,27 +10,27 @@ import {
   getDb, getLastScannedBlock, setLastScannedBlock,
   saveTransactions, saveHolders, saveSummary,
 } from './db.js';
-import { getCurrentFatPriceUsd } from './poolPrice.js';
+import { getCurrentTokenPriceUsd } from './poolPrice.js';
 
-async function main() {
-  console.log('=== FAT Token Holder Cost Basis Analyzer ===\n');
+async function processToken(token: TokenConfig) {
+  console.log(`\n--- Processing ${token.name} ($${token.symbol}) ---\n`);
 
   const db = getDb();
-  const lastBlock = getLastScannedBlock();
-  const startBlock = lastBlock ? lastBlock + 1n : FAT_DEPLOY_BLOCK;
+  const lastBlock = getLastScannedBlock(token.id);
+  const startBlock = lastBlock ? lastBlock + 1n : token.deployBlock;
   const isIncremental = lastBlock !== null;
 
   if (isIncremental) {
     console.log(`Incremental mode: resuming from block ${startBlock}\n`);
   }
 
-  console.log('Step 1/6: Fetching FAT Transfer events...');
-  const fatTransfers = await fetchAllFatTransfers(startBlock);
-  console.log(`  Found ${fatTransfers.length} new FAT transfers\n`);
+  console.log('Step 1/6: Fetching Transfer events...');
+  const transfers = await fetchTokenTransfers(token, startBlock);
+  console.log(`  Found ${transfers.length} new transfers\n`);
 
-  if (fatTransfers.length > 0) {
+  if (transfers.length > 0) {
     console.log('Step 2/6: Classifying transactions...');
-    const classified = await classifyTransactions(fatTransfers);
+    const classified = await classifyTransactions(transfers, token);
     const newBuys = classified.filter((t) => t.type === 'BUY').length;
     const newSells = classified.filter((t) => t.type === 'SELL').length;
     const newTransfers = classified.filter((t) => t.type === 'TRANSFER').length;
@@ -51,11 +51,11 @@ async function main() {
     console.log('  Done\n');
 
     console.log('  Saving to database...');
-    saveTransactions(classified);
-    const maxBlock = fatTransfers.reduce(
+    saveTransactions(classified, token.id);
+    const maxBlock = transfers.reduce(
       (max, t) => (t.blockNumber > max ? t.blockNumber : max), 0n
     );
-    setLastScannedBlock(maxBlock);
+    setLastScannedBlock(token.id, maxBlock);
     console.log(`  Saved. Last scanned block: ${maxBlock}\n`);
   } else {
     console.log('  No new transfers. Using cached data.\n');
@@ -63,8 +63,8 @@ async function main() {
 
   console.log('Step 5/6: Computing cost basis from all data...');
   const allTxRows = db
-    .prepare('SELECT * FROM transactions ORDER BY block_number, rowid')
-    .all() as any[];
+    .prepare('SELECT * FROM transactions WHERE token = ? ORDER BY block_number, rowid')
+    .all(token.id) as any[];
 
   const allClassified = allTxRows.map((row: any) => ({
     txHash: row.tx_hash as `0x${string}`,
@@ -90,30 +90,37 @@ async function main() {
   const currentVirtualPrice = interpolatePrice(
     Math.floor(Date.now() / 1000), latestPrices
   );
-  const currentFatPrice = await getCurrentFatPriceUsd(currentVirtualPrice);
-  console.log(`  FAT=$${currentFatPrice.toFixed(8)} VIRTUAL=$${currentVirtualPrice.toFixed(4)}`);
+  const currentTokenPrice = await getCurrentTokenPriceUsd(token.pairPool, currentVirtualPrice);
+  console.log(`  ${token.symbol}=$${currentTokenPrice.toFixed(8)} VIRTUAL=$${currentVirtualPrice.toFixed(4)}`);
 
+  const id = token.id.toLowerCase();
   const buys = allClassified.filter((t) => t.type === 'BUY').length;
   const sells = allClassified.filter((t) => t.type === 'SELL').length;
-  const transfers = allClassified.filter((t) => t.type === 'TRANSFER').length;
+  const txfers = allClassified.filter((t) => t.type === 'TRANSFER').length;
   const summaryData = {
     totalHolders: holders.size,
     activeHolders: activeHolders.length,
-    totalBuys: buys, totalSells: sells, totalTransfers: transfers,
-    currentFatPriceUsd: currentFatPrice,
+    totalBuys: buys, totalSells: sells, totalTransfers: txfers,
+    currentTokenPriceUsd: currentTokenPrice,
     currentVirtualPriceUsd: currentVirtualPrice,
   };
 
-  saveHolders(holders, currentFatPrice);
-  saveSummary({ ...summaryData, analyzedAt: new Date().toISOString() });
-  writeCsv(holders, currentFatPrice, 'output/fat_holders.csv');
-  writeHoldersJson(holders, currentFatPrice, 'output/fat_holders.json');
-  writeTransactionsJson(allClassified, 'output/fat_transactions.json');
-  writeSummaryJson(summaryData, 'output/fat_summary.json');
+  saveHolders(holders, currentTokenPrice, token.id);
+  saveSummary({ ...summaryData, analyzedAt: new Date().toISOString() }, token.id);
+  writeCsv(holders, currentTokenPrice, `output/${id}_holders.csv`);
+  writeHoldersJson(holders, currentTokenPrice, `output/${id}_holders.json`);
+  writeTransactionsJson(allClassified, `output/${id}_transactions.json`);
+  writeSummaryJson(summaryData, token, `output/${id}_summary.json`);
 
-  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run('last_updated', Date.now().toString());
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(`${token.id}_last_updated`, Date.now().toString());
+}
 
-  console.log('\nDone!');
+async function main() {
+  console.log('=== Chain Radar — Multi-Token Analyzer ===\n');
+  for (const token of TOKENS) {
+    await processToken(token);
+  }
+  console.log('\nAll tokens processed!');
 }
 
 main().catch(console.error);

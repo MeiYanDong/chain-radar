@@ -1,4 +1,4 @@
-import { getHolders, getTransactions } from '@/lib/data';
+import { getHolders, getTransactions, type TokenId } from '@/lib/data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -8,13 +8,18 @@ import { formatUsd, formatNumber, formatDate, shortenAddress } from '@/lib/utils
 
 export default async function AddressPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ addr: string }>;
+  searchParams: Promise<{ token?: string }>;
 }) {
   const { addr } = await params;
+  const { token } = await searchParams;
+  const tokenId = (token === 'argo' ? 'argo' : 'fat') as TokenId;
+  const tokenSymbol = tokenId.toUpperCase();
   const address = addr.toLowerCase();
-  const holders = getHolders();
-  const transactions = getTransactions();
+  const holders = getHolders(tokenId);
+  const transactions = getTransactions(tokenId);
 
   const holder = holders.find((h) => h.address.toLowerCase() === address);
   const txs = transactions.filter((t) => t.user.toLowerCase() === address || t.counterparty.toLowerCase() === address);
@@ -34,7 +39,7 @@ export default async function AddressPage({
       {holder && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           {[
-            { label: 'Balance', value: formatNumber(holder.balance / 10000, 0) + ' 万 FAT' },
+            { label: 'Balance', value: formatNumber(holder.balance / 10000, 0) + ` 万 ${tokenSymbol}` },
             { label: '花费 (USD)', value: formatUsd(Math.round(holder.totalCostUsd)) },
             { label: '买入市值', value: formatNumber(holder.buyMarketCap / 10000, 2) + ' 万USD' },
             { label: 'Current Value', value: formatUsd(holder.currentValueUsd) },
@@ -71,48 +76,45 @@ export default async function AddressPage({
               <TableRow className="border-zinc-800 hover:bg-transparent">
                 <TableHead className="text-zinc-400">Date</TableHead>
                 <TableHead className="text-zinc-400">Type</TableHead>
-                <TableHead className="text-zinc-400">FAT Amount</TableHead>
+                <TableHead className="text-zinc-400">{tokenSymbol} Amount</TableHead>
                 <TableHead className="text-zinc-400">VIRTUAL</TableHead>
                 <TableHead className="text-zinc-400">USD</TableHead>
                 <TableHead className="text-zinc-400">Tx</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {txs.map((tx, i) => {
-                const isSender = tx.user.toLowerCase() !== address;
-                return (
-                  <TableRow key={`${tx.txHash}-${i}`} className="border-zinc-800">
-                    <TableCell className="text-zinc-300 text-sm">{formatDate(tx.timestamp)}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={
-                          tx.type === 'BUY'
-                            ? 'border-emerald-500 text-emerald-400'
-                            : tx.type === 'SELL'
-                            ? 'border-red-500 text-red-400'
-                            : 'border-zinc-500 text-zinc-400'
-                        }
-                      >
-                        {tx.type}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-zinc-100 font-mono">{formatNumber(tx.fatAmount, 0)}</TableCell>
-                    <TableCell className="text-zinc-300">{tx.virtualAmount > 0 ? formatNumber(tx.virtualAmount, 2) : '-'}</TableCell>
-                    <TableCell className="text-zinc-300">{tx.usdAmount > 0 ? formatUsd(tx.usdAmount) : '-'}</TableCell>
-                    <TableCell>
-                      <a
-                        href={`https://basescan.org/tx/${tx.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400 hover:text-blue-300 text-sm font-mono"
-                      >
-                        {shortenAddress(tx.txHash)}
-                      </a>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {txs.map((tx, i) => (
+                <TableRow key={`${tx.txHash}-${i}`} className="border-zinc-800">
+                  <TableCell className="text-zinc-300 text-sm">{formatDate(tx.timestamp)}</TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={
+                        tx.type === 'BUY'
+                          ? 'border-emerald-500 text-emerald-400'
+                          : tx.type === 'SELL'
+                          ? 'border-red-500 text-red-400'
+                          : 'border-zinc-500 text-zinc-400'
+                      }
+                    >
+                      {tx.type}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-zinc-100 font-mono">{formatNumber(tx.fatAmount, 0)}</TableCell>
+                  <TableCell className="text-zinc-300">{tx.virtualAmount > 0 ? formatNumber(tx.virtualAmount, 2) : '-'}</TableCell>
+                  <TableCell className="text-zinc-300">{tx.usdAmount > 0 ? formatUsd(tx.usdAmount) : '-'}</TableCell>
+                  <TableCell>
+                    <a
+                      href={`https://basescan.org/tx/${tx.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-400 hover:text-blue-300 text-sm font-mono"
+                    >
+                      {shortenAddress(tx.txHash)}
+                    </a>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </CardContent>

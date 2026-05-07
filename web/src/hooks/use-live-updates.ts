@@ -9,12 +9,12 @@ interface DashboardData {
   summary: Summary;
 }
 
-export function useLiveData(initial: DashboardData) {
+export function useLiveData(initial: DashboardData, tokenId: string = 'fat') {
   const [data, setData] = useState<DashboardData>(initial);
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch('/api/data');
+      const res = await fetch(`/api/data?token=${tokenId}`);
       if (res.ok) {
         const json = await res.json();
         setData(json);
@@ -22,7 +22,7 @@ export function useLiveData(initial: DashboardData) {
     } catch {
       // fetch failed, keep current data
     }
-  }, []);
+  }, [tokenId]);
 
   useEffect(() => {
     const es = new EventSource('/api/events');

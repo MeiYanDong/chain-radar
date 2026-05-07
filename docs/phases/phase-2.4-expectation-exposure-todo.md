@@ -1,0 +1,218 @@
+# Phase 2.4 Todo：入选预期与 Burn 预期分析
+
+> 维护规则：本文档记录 Phase 2.4 的执行事项。完成字段、文档或实现改动后，Agent 需要更新勾选状态和简短备注。
+
+## 1. 产品边界
+
+- [x] 确认分析来源只有两个：`Competing Agents` 和官方 Pot Monitor `Live P&L`。
+- [x] 确认用户钱包持仓不是分析源头，只作为暴露映射。
+- [x] 确认 AIDOG 不属于 virtual-degen 交易赛分析范围。
+- [x] 确认先判断全场预期，再映射用户持仓。
+
+## 2. 待完成
+
+- [x] 整理 Competing Agents 最小字段。
+  - 目标：只保留判断入选预期必要的字段。
+- [x] 整理 Pot Monitor 最小字段。
+  - 目标：只保留判断 burn 预期必要的字段。
+- [x] 定义第一版入选预期等级。
+  - 目标：先用 high / medium / low，不急着做复杂评分。
+- [x] 定义第一版 burn 预期等级。
+  - 目标：保留“是否形成 burn 基础”的判断，但不再把 burn 质量分直接等同于买入机会。
+- [x] 建立用户持仓暴露表。
+  - 目标：把用户持有的 ZMAC / NOVA / EVERYTRADE / WOA / BL / BENYORKE 映射到对应 agent。
+- [x] 定义入选预期加权评分维度。
+  - 目标：把多个客观判断依据按重要性排序、赋权，并使用连续函数得出 high / medium / low / unknown。
+- [x] 定义 burn 预期评分边界。
+  - 目标：先判断是否已被 Pot 跟单，再用官方 Pot Live P&L 和已实现 P&L 判断 burn 预期；5min / 15min / 1H 变化量只保留为卡片辅助和后台诊断，避免重复回答同一个问题。
+
+## 3. 下一步
+
+- [x] 拉取一次实时 Competing Agents 数据。
+  - 目标：按 high / medium / low 给出全场入选预期初版。
+  - 2026-04-26：已用 `Competing Agents` 当前数据完成用户持仓相关 agent 的入选预期初判。
+- [x] 拉取一次实时 Pot Monitor 数据。
+  - 目标：给出当前已入选 agent 的 burn_quality_score 初版。
+  - 2026-04-26：已用当前 PotAgent Live P&L 完成 burn 质量初判；历史版本曾要求 edge_score 使用 15min / 1H 连续快照和 token 市值/流动性数据。
+  - 2026-04-29：降噪后不再把 15min / 1H 快照作为进入 burn 加仓的必要条件；它们只用于复盘。
+- [x] 输出用户当前暴露表。
+  - 目标：说明每个持仓主要暴露在入选预期、burn 预期，还是两者都有。
+  - 2026-04-26：已确认持仓暴露表应每次按最新数据刷新，不在文档里固化某个 agent 的实时结论。
+
+## 4. 新增任务
+
+- [x] 把 Phase 2.4 分析做成可重复命令。
+  - 目标：每次对话分析前，一键刷新 Competing Agents、Pot Live P&L 和用户持仓暴露。
+  - 2026-04-26：已新增 `npm run expectation`，输出入选预期分、burn 预期、目标仓位和持仓暴露。
+- [x] 把全场早期 Alpha 扫描并入可重复命令。
+  - 目标：不用每次临时写脚本，直接输出未入选 high 分候选、观察列表和已入选参照组。
+  - 2026-04-26：`npm run expectation` 已同时输出 held exposure、early alpha candidates、watchlist 和 selected reference top。
+- [x] 把评分结果映射到仓位梯度。
+  - 目标：评分不是展示指标，而是直接决定买入、加仓、减仓和卖出。
+  - 历史版本 2026-04-27：曾使用三层固定仓位：入选预期 20U / 40U / 60U；入选确认按 `selection_score + official_allocation_score` 到 40U / 60U / 70U / 80U；burn 阶段按 edge_score 到 60U / 80U / 120U / 160U / 200U，并受 burn_quality_score 上限约束。该口径已被下面的基本面比例模型替代。
+  - 历史版本 2026-04-28：曾把仓位比例修正为 `入选预期 + 入选确认 : burn = 4 : 6`，且 `入选预期 : 入选确认 = 3 : 1`。这个比例保留，但不再直接映射成所有 agent 通用的固定 U 数。
+  - 历史版本 2026-04-27：曾把单个 Agent 最高投入从 100U 调整为 200U。当前 200U 只表示理论最高上限，实际上限必须先乘以 `fundamental_ratio`。
+  - 历史版本 2026-04-27：第一层入选预期曾使用固定 20U / 40U / 60U 试探仓。当前应改为按 `agent_cap_u * 30%` 的进度比例计算。
+- [x] 将仓位模型升级为基本面比例模型。
+  - 目标：不再用固定 S/A/B/C 档位或固定 60U / 80U / 200U 作为所有 agent 的绝对仓位，而是先计算 `fundamental_ratio`，再得到 `agent_cap_u = 200U * fundamental_ratio`。
+  - 2026-04-28：产品文档已更新为比例模型：入选预期上限 = `agent_cap_u * 30%`，入选确认累计上限 = `agent_cap_u * 40%`，burn 最终上限 = `agent_cap_u * 100%`。
+  - 2026-04-28：入选确认仓新增 P&L 函数调整：`confirmation_position_score = selected_confirmation_score + pnl_adjustment`，其中官方 Pot Live P&L、15min 变化和 1H 变化都按相对 `pot_allocation_usd` 的 signed function 计算，盈利加分、亏损扣分。
+  - 2026-04-28：风险不再一刀切到固定 U，而是使用 `risk_multiplier` 按比例压缩确认仓。默认：normal = 1，yellow = 0.5，red_recovering = 0.25，red_not_recovering = 0，catastrophic = 0。
+  - 2026-04-28：代码已同步并部署到云服务器。`npm run expectation`、云端 `position_advice_snapshots` 和飞书仓位调整通知都使用同一个 `positionModel` 比例模型。
+  - 2026-05-01：降噪版确认仓只使用官方 Pot Live P&L 做 P&L 调整；5min / 15min / 1H 变化量不再加分或扣分。风险门槛统一为 `pot_live_pnl_usd <= -2500` 减仓风险、`<= -4000` 清仓风险。
+- [x] 将阶段语义拆成时间阶段、信号状态和仓位层。
+  - 目标：避免把“已经进入 burn Pot 时间窗口”和“已经形成 burn 加仓信号”混为一谈。
+  - 2026-04-28：新增 `calendar_phase`、`signal_state`、`position_layer`。例如周二 08:30 之后可以同时是 `burn_pot_window`、`burn_early_no_momentum`、`confirmation`，表示时间已进入 burn 阶段，但仓位仍只来自入选确认层。
+  - 时间边界：`confirmation_window = 北京时间周一 08:00 到周二 08:30`；`burn_pot_window = 北京时间周二 08:30 到下周一 08:00`。入选预期扫描长期运行，不被当前时间窗口暂停。
+- [x] 输出 burn 评分拆解。
+  - 目标：每个已入选 agent 的 burn 预期都能反查官方 Pot Live P&L、已实现/未实现 P&L、estimated burn、市值/流动性冲击和最终目标仓位。
+  - 2026-04-26：`npm run expectation` 已新增 Burn score breakdown；历史版本曾同时展示 burn_quality 与 edge_score。
+  - 历史版本 2026-04-27：曾把 Live P&L 拆成 `live_pnl_foundation_score` 与 `live_pnl_edge_score`，并把 allocation 移入入选确认层。该说法已被 2026-04-28 的 `pot_*` 口径覆盖：第三阶段里 allocation 是 Pot Live P&L 的杠杆。
+  - 2026-04-28：产品口径再次修正：第三阶段里 official allocation 是官方 Pot Live P&L 的杠杆，不是独立 burn 维度；`pot_live_pnl_usd` 指官方 Pot 跟单账户总 P&L，完整计入预期，不因未实现部分打折；`pot_realized_pnl_usd` 只做额外兑现质量增强或风险惩罚。
+  - 2026-04-28：代码已同步。`src/potScoring.ts` 统一承载 burn 质量分和 edge 分；`npm run expectation` 与常驻 `watcher` 共用同一口径，避免两边公式漂移。
+- [x] 修正 Pot 异常数据口径。
+  - 目标：`currentValue <= 0` 这类接口脏值不参与 burn 预期判断，不再误判为真实亏完。
+  - 2026-04-26：已与 Pot Monitor 口径对齐，异常数据输出 unknown 且 targetU = 0。
+- [x] 强制分析命令每次拉取最新数据。
+  - 目标：每次对话分析都现场刷新 API，不沿用上一轮结果或缓存结果。
+  - 2026-04-26：`npm run expectation` 已对数据请求加入 no-cache、时间戳参数和轻量重试，避免一次网络抖动直接中断分析。
+- [x] 将 selection_score 改为连续函数评分。
+  - 目标：Competing Agents 不再使用 0 到 5 人工分档，而是用全场分布、样本量、胜率、活跃度、可读证据和风险控制函数加权。
+  - 2026-04-27：已改成简单字段权重：资本效率 25%、样本可信度 35%、交易结果 15%、风险控制 10%、活跃度 10%、Council 可读证据 5%；低胜率、低样本和小额 P&L 通过权重自然降分，不再用额外质量门槛硬挡。
+  - 2026-04-27：已废弃直接使用接口原始 `returnPct` 的资本效率口径；接口原始值与用户理解的本金回报率不一致，只作为 `apiReturnPct` 展示。
+  - 2026-04-27：默认评分改用 `capital_efficiency_ratio = average(realized_pnl_usd / holdings_value_usd, mtm_pnl_usd / holdings_value_usd)`。
+  - 2026-04-27：资本效率函数已加入资金规模可信度，避免几美元账户因为 P&L 比例极高被误打满分。
+  - 2026-04-27：`selection_score v1.1` 已改成结构化字段函数版本；后续优先用真实入选结果和买入后表现校准，不再频繁凭单例改公式。
+  - 2026-04-27：已按“判断函数可以多元，但只能回答一个问题”的原则展开子分：资本效率拆出 `capital_return_score` / `capital_base_confidence_score`；交易结果拆出相对分和绝对分；样本可信度拆出 `sample_size_score` / `win_rate_score`；未平仓暴露改用 `open_exposure_safety_score`。
+- [x] 明确 MTM 字段含义。
+  - 目标：输出和文档中把 `mtm_pnl_usd` 解释为 mark-to-market 账面浮盈/浮亏，不再让用户误以为这是已经落袋的收益。
+  - 2026-04-27：分析表中将 `mtmPnl` 改为 `markToMarketPnl`，并补充展示 `realizedPnl`。
+- [x] 修正数据新鲜度口径。
+  - 目标：一周比赛不能因为 `calculated_at` 超过 30 分钟就把 Agent 直接标成 unknown；数据年龄只作为提示，不作为默认硬过滤。
+  - 2026-04-27：已新增 `dataAgeMin` / `data_freshness`，并取消 30 分钟 stale 硬门槛；只有缺少 performance 数据时才输出 unknown。
+- [x] 增加搜索名称字段。
+  - 目标：避免用户用 token_symbol 搜索 ALX、CLAWMANIA 时找不到；Degen / Virtuals 搜索应使用 Agent 名称。
+  - 2026-04-27：`npm run expectation` 已输出 `searchName`；例如 ALX 搜 Alexa，CLAWMANIA 搜 Claw-mania。DEX 流动性检查保留为可选辅助，不作为默认硬过滤。
+- [x] 接入入选 Alpha 通知。
+  - 目标：每分钟计算一次全量 selection_score，保存快照，并按 15min / 1H 分数变化、排名变化和入选状态触发飞书提醒。
+  - 2026-04-27：已在 `npm run watch` 的常驻进程中加入 Selection Alpha monitor；启动第一轮只建立基线，不发送历史提醒。
+  - 2026-04-27：已部署到云服务器 PM2 常驻进程；服务器使用 `node dist/watcher.js`，每分钟写入 selection_score 快照。
+  - 2026-04-27：已修复 Pot 接口临时无有效数据时阻断 Selection Alpha 的问题；Pot 本轮无有效数据时，Selection Alpha 仍会独立运行。
+  - 2026-04-27：强 Alpha 规则为 `未入选 + score >= 75 + 首次 high / 15min +5 / 1H +8 / 进入前 5`。历史版本默认建议 60U；新模型应按 `agent_cap_u * 30% * pre_selection_progress` 计算。
+  - 2026-04-27：临界 Alpha 规则为 `未入选 + 65-75 + 至少两个变化条件 + 第一层目标仓位 > 0`。历史版本默认建议 20U-40U；新模型应先看 `fundamental_ratio`，再给试探仓。
+  - 2026-04-27：入选确认 `selected_now false -> true` 必须通知；走弱提醒覆盖跌破 70、15min -5、1H -8、跌出前 10。
+- [x] 接入回购执行地址通知。
+  - 目标：不要等 burn 页面更新；当回购地址买入 Agent token 后，立刻提醒检查卖出。
+  - 2026-04-27：已识别 Season 4 回购执行地址 `0x9Bda49389B29Fa4E204eD9De8f3d7d06f84dA171`。
+  - 2026-04-27：监控窗口先按北京时间每周一 08:00 到周二 08:00 覆盖完整周期；窗口外暂停扫描。
+  - 2026-04-27：启动后会先建立历史基线，避免把已经发生的回购旧交易刷屏提醒；后续新增买入交易才触发飞书卡片。
+  - 2026-04-27：默认从 Blockscout 轮询改为 Base RPC 快速模式，每 30ms 检查新区块里的 Transfer 日志；Blockscout 只保留为备用数据源。
+- [x] 接入自动卖出测试执行器。
+  - 目标：把“提醒后人工卖出”升级为“回购命中后程序提交 sell 交易”，用于测试 3 秒窗口内的真实可执行性。
+  - 2026-04-27：新增自动卖出热钱包配置，命中回购后读取热钱包 token 余额，按配置比例调用同一交易入口的 `sell(amountIn, tokenAddress, amountOutMin, deadline)`。
+  - 2026-04-27：支持测试模式把用户旧钱包临时配置成回购地址；飞书卡片会展示自动卖出状态、卖出交易和“发现到提交”的延迟。
+  - 2026-04-27：支持 `BUYBACK_WINDOW_MODE=always` 临时打开全天测试；实盘窗口可通过 `BUYBACK_WINDOW_START_*` / `BUYBACK_WINDOW_END_*` 调整。
+  - 2026-04-27：已改良为快速路径：Alchemy 作为主 RPC，Chainstack 作为备 RPC；目标 token 可配置为预授权，跳过 allowance 读取；token decimals 可从 env 预热；sell gas 和 EIP-1559 fee 上限可固定，避免触发前估算。
+  - 2026-04-28：修复测试顺序缺口。自动卖出必须先通过“小额直接卖出”测试，再进入“回购命中后自动卖出”测试；否则无法判断失败来自监听链路还是卖出链路。
+  - 2026-04-28：NOVA 小额直接卖出已通过。根因确认：卖出交易入口是市场合约，但 token allowance 的 spender 是平台授权地址，二者不能混用；旧固定 gas 260000 也偏低，测试配置改为 350000。
+  - 2026-04-28：回购触发卖出测试已通过。旧钱包小额买入 NOVA 后，监控在同一区块检测到回购事件，热钱包自动卖出 999 NOVA，卖出交易进入下一块；后续每次触发会在服务器日志记录 `detectedToSubmitMs`。
+  - 2026-04-28：已切回正式模式。服务器监听真实回购执行地址，自动卖出比例改为 100%。
+  - 2026-04-28：根据 Season 4 两周链上回购时间复盘，正式扫描窗口从北京时间每周一 08:00 到周二 08:00 收窄为每周一 16:00 到 20:00；窗口外暂停扫描。
+  - 2026-05-04：已改良为可审计版本：新增 `auto_sell_executions` 执行表，回购触发后的自动卖出结果会持久化记录 `status / token_amount / approve_tx / sell_tx / detectedToSubmitMs / error`；新增 `npm run auto-sell:health` 窗口前健康检查和 `npm run auto-sell:test` 专项测试。默认每周一 15:50 北京时间进入 10 分钟检查窗口，若发现阻塞项会通过飞书强提醒提示 16:00 前处理；服务器已部署并通过健康检查。
+  - 2026-05-04：为“回购地址买入后尽量第一个卖出”继续优化 fast path：AI Pot 十个 Agent token 均已授权 100,000,000 个 token 到自动卖出 spender；服务器 `.env` 已加入预授权清单、decimals 和 symbol 元数据。命中这些 token 时，监控不再额外读取 ERC20 `symbol()` / `decimals()`，直接用本地元数据进入 sell 提交流程。
+  - 2026-05-04：新增“回购地址变化”黑天鹅 fallback。服务器可通过 `BUYBACK_LARGE_BUY_FALLBACK_ENABLED=1` 开启：在正常回购窗口内扫描已预授权且在 `BUYBACK_LARGE_BUY_SYMBOLS` 白名单内的 Agent token；若同一交易里买方花出 VIRTUAL 数量严格大于 `BUYBACK_LARGE_BUY_THRESHOLD_VIRTUAL=3000`，即使买方不是已知回购地址，也按疑似回购触发自动卖出。该路径仍只覆盖 AI Pot 预授权 token，避免普通全链大额买入误触发；USD 金额只用于通知展示和审计。
+  - 2026-05-04：优化黑天鹅 fallback 延迟。RPC 监控现在在同一个区块范围内并行扫描白名单 token `Transfer` 与 VIRTUAL `Transfer`，本地按 `txHash` 合并判断 `> 3000 VIRTUAL`，命中后直接进入自动卖出，避免每个候选交易再额外拉一次 receipt 或实时价格。
+  - 2026-05-04：优化自动卖出提交。新增 `AUTO_SELL_SUBMIT_MODE=multi-rpc`：卖出交易用同一 nonce 签名一次，并发广播到所有配置的 RPC，任一 RPC 接受即返回；若并发广播失败，会自动回退到原 primary RPC 提交路径。生产建议配合固定 `AUTO_SELL_SELL_GAS_LIMIT` 与 `AUTO_SELL_MAX_FEE_GWEI`，避免触发时额外估 gas / 估 fee。
+  - 2026-05-04：优化滑点、priority fee、防夹。实测当前 AI Pot token 不能稳定走 FRouter/BondingV5 `getAmountsOut`，因此生产默认改为 `AUTO_SELL_MIN_OUT_MODE=reference` + `AUTO_SELL_REQUIRE_NONZERO_MIN_OUT=1`：用触发买入交易里的 token 数量和 VIRTUAL 花费推导参考成交价，再按 `AUTO_SELL_SLIPPAGE_BPS` 折扣计算 `amountOutMin`，避免回退到 `amountOutMin=0`。保留 `quote` / `quote-required` / `quote-reference` 作为未来可验证 quote 的 token 使用；`AUTO_SELL_VERIFY_QUOTES=0` 是当前 AI Pot 生产建议。priority fee 支持 `AUTO_SELL_FEE_MODE=dynamic`，按链上 fee estimate 乘数提高 priority/max fee 并用 cap 控制；防夹路径支持 `AUTO_SELL_PROTECTED_RPC_URLS` 与 Base Flashblocks preconf 广播，生产建议禁用 public broadcast fallback，并设置 `AUTO_SELL_PRIMARY_FALLBACK_ENABLED=0`，避免 protected/Flashblocks 全失败后又退回公开主 RPC。健康检查会显式报告滑点、最低收回模式、fee mode、protected RPC、public broadcast 和 primary fallback 状态。
+  - 2026-05-04：针对 OKX Wallet 限价单竞争继续优化。新增 `BUYBACK_FLASHBLOCKS_ENABLED=1` 预确认触发通道：watcher 通过 Flashblocks `newFlashblockTransactions` WS 订阅读取预确认交易 logs，直接识别官方回购或 `>3000U` 大额买入并复用自动卖出 fast path；原 confirmed-block RPC 扫描继续保留为兜底。生产优先使用从 `RPC_URL` 派生出的 Flashblocks-aware provider WSS 端点，避免依赖公开限速端点。健康检查新增 `flashblocks_trigger`，确认不是只等完整区块。新增 `OKX_LIMIT_ORDER_BACKUP_ENABLED` / `OKX_LIMIT_ORDER_PREPLACED_SYMBOLS` 作为 OKX 限价单备份覆盖声明：真正的 OKX 挂单仍需在 OKX DEX/Wallet 侧提前创建，monitor 只负责把覆盖状态纳入窗口前检查。
+  - 风险边界：如果 token 没有提前 approve 到正确 spender，第一次触发会先发 approve 再 sell，延迟会明显变大；真实最快模式应提前授权测试 token。固定 gas / fee 只适合已经用真实直接卖出和当前 Base 网络费率校验过的同类卖出路径。
+- [x] 历史版本：将 edge_score 改为连续函数评分。
+  - 说明：该版本已被 2026-04-29 的 Live P&L 主函数降噪版替代；保留此条只用于解释历史决策路径。
+  - 2026-04-28：新增 `npm run burn-model:test`，用模拟场景验证：未实现 +10000 不打折；同样 +10000 中已实现越高，burn 质量分越高；已实现亏损进入风险惩罚。
+- [x] 将 burn 阶段模型降噪为 Live P&L 主函数。
+  - 目标：解决 5min / 15min / 1H 变化量、绝对阶梯提醒和综合分数重复回答同一个问题的问题。
+  - 2026-04-29：5min / 15min / 1H 变化量退出默认评分和默认飞书提醒；只保留在仓位调整卡片、数据库快照和复盘展示中，用来辅助判断短线方向。
+  - 2026-05-01：Live P&L 正向提醒为 `+1500 / +3000 / +4500 / +6000 / +7500 / +10000 / +15000 / +20000` 阶梯；负向风险提醒统一为 `-2500 / -4000`。
+  - 2026-05-01：风险门槛按用户确认改为 `pot_live_pnl_usd <= -2500` 减仓风险，`<= -4000` 清仓风险；短期变化量不能把深度亏损重新抬成高分。
+  - 2026-04-29：`npm run expectation` 默认不再打印完整 JSON；需要排查字段时用 `EXPECTATION_JSON=1 npm run expectation`。
+- [x] 将正向 Live P&L 阶梯映射到 burn 仓位比例。
+  - 目标：Live P&L 阶梯不只是提醒，也要能直接解释目标仓位为什么变化。
+  - 2026-04-29：映射为 `+1500=45% / +3000=50% / +4500=55% / +6000=60% / +7500=65% / +10000=75% / +15000=90% / +20000=100%`，全部基于 `agent_cap_u` 缩放。
+  - 2026-05-01：已实现 P&L 质量修正：`10% * tanh(pot_realized_pnl_usd / 5000)`，范围限制为 `-5%` 到 `+10%`；`pot_realized_pnl_usd <= -4000` 仍走清仓风险门槛。
+  - 2026-04-29：飞书 Live P&L 通知区分 `上穿 / 回落 / 跌破 / 风险`；向下离开档位使用 10% 缓冲，避免在阶梯附近反复刷屏。
+  - 2026-04-29：修复阈值缓冲误用问题。缓冲只用于“向下离开档位”，不能阻止 `+1500 -> +3000` 或 `-2500 -> -4000` 这类更高档位突破通知。
+  - 2026-04-29：新增 `npm run thresholds:test`，把上穿、回落、跌破、负向风险升级都固化成测试，防止阈值状态机再次靠人工目测。
+	  - 2026-04-29：启动恢复逻辑改为读取 2 小时内的最近 P&L 快照并直接进入可报警状态；部署或重启期间发生的新档位突破不应被第一轮“重新打基线”吃掉。
+	  - 2026-04-29：飞书发送增加 3 次重试、返回码校验和内存待发送队列；发送失败会记录日志并在下一轮继续补发。
+	  - 2026-04-29：部署脚本的一次性验证改用临时数据库，避免验证过程把最新 P&L 写入生产库并污染正式 PM2 的阈值基线。
+	  - 2026-04-29：补充监控循环保护：官网 / 飞书 HTTP 请求增加超时，Pot 监控上一轮未结束时跳过本轮，避免卡住后多轮重叠运行。
+	  - 2026-04-29：补充待发送卡片的状态保护：失败后补发的旧卡片不能把已经推进到更高档位的阈值状态回滚。
+	  - 2026-04-29：飞书发送成功也写入日志，后续能区分“没有生成卡片”和“生成了但发送失败”。
+	  - 2026-04-30：新增“数据异常/疑似归零”飞书卡。若官网 Pot API 对一个此前仍有正向 Live P&L 的 Agent 返回 `currentValue=0`，监控不能静默跳过，而是立即提示用户打开官网确认；若不是接口异常，则按清仓风险处理。
+	  - 2026-04-30：通知链路升级为可靠 outbox。飞书卡片先写入 `notification_outbox`，再投递；失败后按退避重试，PM2 重启后仍可继续补发。官网 Pot 每轮原始行同步写入 `pot_agent_raw_snapshots`，包括无效行，方便追查数据源异常和通知漏发原因。
+	  - 2026-04-30：outbox 增加领取锁，发送器会先把 `pending` 通知领取为 `sending`，避免 Pot 监控和 30ms 回购监控同时 flush 时重复投递；若发送中进程退出，超过 60 秒会自动回到 `pending`。Selection 同类提醒的冷却改为同时查询通知历史，PM2 重启后不再只靠内存冷却。
+	  - 2026-04-30：数据异常提醒降噪。若 3 个及以上 Agent 同时返回 `currentValue=0`，优先判断为官网/API 数据源异常；异常开始只发一张橙色汇总卡，不再按固定 30 分钟重复提醒。异常持续、部分恢复或进程重启期间都保持同一异常事件；连续 2 轮完全健康后才视为恢复，之后若再次大面积返回 0 才重新提醒。这段期间暂停仓位建议，并压制单 Agent “疑似归零”红卡；只有孤立单 Agent 异常才发红卡，默认 6 小时冷却。
+	  - 2026-04-30：5min / 15min / 1H 变化量增加首尾帧有效性约束。首帧不再用宽松的前后 5 分钟兜底，而是按窗口设置容差：5 分钟最多偏离 90 秒，15 分钟最多偏离 180 秒，1 小时最多偏离 300 秒；实际跨度必须至少达到窗口的 70%。如果首帧或尾帧处于官网数据异常区间，则变化量显示“数据不足”，不进入判断，避免把异常缺帧误算成趋势。
+	  - 2026-04-30：变化量从单一数值升级为“数值 + 质量状态”。卡片会区分 `缺少首帧 / 跨度过短 / 跨度过长`，而不是只显示笼统的数据不足。当前 Pot 数据源大面积异常时，仓位建议暂停，不再用旧 fallback 快照生成新的仓位调整或写入新的 position advice 快照。
+	  - 2026-04-30：只暂停入选预期阶段通知。Selection 快照和评分继续运行，但飞书不再发送强机会、临界机会、入选预期走弱等候选挑选消息；入选确认、Pot Live P&L 和回购触发通知不受影响。
+	  - 2026-05-01：仓位调整通知默认暂停，只保存目标仓位快照用于复盘；清仓不再作为单独的“仓位调整/清仓建议”提醒，而是统一到负向 Live P&L 阶梯。`Live P&L <= -2500` 是减仓风险，`<= -4000` 是清仓风险。
+	  - 2026-05-01：Android 强提醒使用飞书 @ 文本：正向 Live P&L 阶梯上穿、负向风险阶梯跌破、回购触发和自动卖出失败会额外发送一条短文本 @ 提醒；飞书卡片仍保留完整决策信息。
+	- [x] 接入 token market cap / liquidity 数据。
+  - 目标：计算 `estimated_burn_usd = max(pot_live_pnl_usd, 0) * 50%` 相对于市值或流动性的影响，而不是只看绝对 P&L。
+  - 2026-04-27：已改用 Virtuals 官方 agent API 读取 `mcapInVirtual` / `fdvInVirtual` / `liquidityUsd` / `volume24h`，并用 VIRTUAL/USD 把 mcap 和 fdv 转为美元；修复 EVERYTRADE 在 GeckoTerminal / Dexscreener 返回 0 的错误。
+- [x] 等待新一周 Top 10 Agent 跟单开始后重测 burn 预期。
+  - 目标：避免用本周收尾阶段的 SETTLED / DRAINING 数据误判新的交易机会。
+  - 说明：本周 Agent 仓位陆续关闭，当前测试只用于验证字段和函数；新一周开始后再用真实 10 个跟单对象校准 burn 预期函数。
+  - 2026-04-28：Season 5 Top10 已可拉取；已用 `npm run expectation` 跑真实 Top10，并用远端 PM2 一次性验证确认常驻链路可运行。
+- [x] 接入服务器连续快照。
+  - 目标：保存 5min / 15min / 1H 变化用于仓位卡片、复盘和诊断；降噪版不再把它直接纳入 burn 预期等级。
+  - 2026-04-28：服务器已持续写入 `pot_pnl_snapshots`，用于计算每个 Agent 的 15min / 1H Live P&L 变化。
+  - 2026-04-29：仓位调整卡片新增 5min 变化量；5min / 15min / 1H 统一只展示为辅助信息，不参与目标仓位计算。
+  - 2026-04-28：新增 `pot_agent_snapshots`，每轮保存官网 Current Season Top10 的完整原始字段，包括官方排序、Agent、token、allocation、currentValue、realized/unrealized P&L、positions JSON 和原始响应 JSON；后续复盘可直接读取服务器数据库当时快照。
+  - 2026-04-28：字段定义改为官方 Pot 跟单账户口径，避免和用户自己的 Agent 代币持仓盈亏混淆。
+  - 2026-04-28：`npm run expectation` 在服务器上优先读取 3 分钟内的 `pot_agent_snapshots`；没有新鲜快照时才回退官网 API，避免评分依赖官网当前状态覆盖历史。
+  - 2026-04-28：修复 Season 5 Top10 评分取样问题。评分改为读取最近一批完整 10 行 Pot 快照，并按官方 Pot 排名输出；避免官网短暂返回 `currentValue=0` 时只剩部分 Agent，或因 token symbol 重名把非 Top10 Agent 混入。
+  - 2026-05-03：新增 `pot_market_snapshots` 长期复盘表，每分钟保存 `Live P&L / realized / unrealized / token_price_usd / market_cap_usd / liquidity_usd / volume_24h_usd`，默认保留 30 天，用于研究 Live P&L 与代币价格的领先/滞后关系。
+  - 2026-05-03：新增 `npm run lag:analyze`，按多个 lag 窗口计算 `P&L 变化` 与 `价格变化` 的相关性；新增 `docs/live-pnl-price-lag-research.md` 记录字段、方法和判断标准。
+  - 2026-05-03：修复生产环境价格为空的问题。原因是 CoinGecko 免费接口在云服务器上返回 429；已增加 DexScreener Base VIRTUAL 价格回退源。生产库最新 Top10 已验证 10/10 写入 token price / market cap / FDV。
+  - 2026-05-03：线上初版分析完成。新表样本还短；用 `position_advice_snapshots` 粗略回看，BL 的 Live P&L 变化约领先价格 15 分钟，WOA 约领先 10 分钟，GOCHU 约领先 30 分钟。该结果只作为早期线索，正式复盘以后以 `pot_market_snapshots` 长期样本为准。
+  - 2026-05-03：字段口径修正。`token_price_usd` 是滞后性研究、可视化曲线和健康检查的主字段；`token_price_virtual` 与 `virtual_usd` 只作为底层换算审计字段保留，不进入默认观察口径。
+  - 2026-05-03：新增静态可视化报告 `reports/live-pnl-price-lag.html`，展示 Top10 总览、单 Agent 双曲线、滞后热力图和阶梯事件表；页面顶部新增数据可靠性面板，明确标出市场快照起点、美元价格起点、最新批次完整度和批次完整率，避免把样本不足误读成策略结论。
+  - 2026-05-03：新增独立数据健康 watchdog。服务器 cron 每分钟运行一次，检查市场快照是否断采、最新批次是否少于 10 行、美元价格或市值字段是否缺失、最近一小时是否有大于 180 秒断档、官网原始 Top10 是否有无效行；异常结果写入服务器日志，默认不发飞书。
+  - 2026-05-04：按当前通知策略关闭“官网数据异常 / 单 Agent 疑似归零 / 数据健康”飞书通知。官网异常检测、原始行落库、仓位建议暂停和数据健康日志继续保留，只是不再进入手机通知通道。
+  - 2026-05-04：修复 Season 结束窗口的数据断采问题。官网在周一 08:00 后会把 Pot season 从 `ACTIVE` 切到 `DRAINING / SETTLED`，这些状态仍有最终 Live P&L、已实现和未实现盈亏；监控现在把 `ACTIVE / DRAINING / SETTLED` 都纳入 Pot 快照，避免 08:00 后停采。
+  - 2026-05-04：修复 Selection 辅助接口影响 Pot 主线的问题。若 competing agents 排行接口偶发 500，Selection 只记录错误，不再阻断 Pot Live P&L 卡片入队、快照落库和 outbox 投递。
+  - 2026-05-04：新增 Pot 主线运行事故通道。普通“数据健康”飞书仍关闭；但 `pot_market_snapshots` 超过阈值未更新、数据库缺失或主线断采这类会直接影响交易的事故，会由 cron 独立发送“监控事故”飞书 @ 文本，5 分钟冷却，并在恢复后发送恢复通知。
+  - 2026-05-04：监控事故通知改为决策型短文本，不再把原始数据健康字段直接展示给用户。格式固定为“影响 / 动作 / 原因 / 最新 / 覆盖”，恢复通知固定为“影响 / 动作 / 最新 / 覆盖”。
+- [x] 接入仓位调整通知。
+  - 目标：当目标仓位因为入选确认、Live P&L 阶梯或 burn 预期发生变化时，飞书直接提示“上次目标 -> 当前目标”和操作建议。
+  - 2026-04-28：新增 `position_advice_snapshots`，每分钟记录每个 Pot Agent 的目标仓位、阶段、原因和关键指标。
+  - 2026-04-28：通知规则为目标仓位变化至少 20U 或阶段变化才触发，默认 15 分钟冷却，避免重复刷屏。
+  - 2026-04-28：仓位逻辑修正为三层叠加：burn edge 失败只是不加 burn 仓位，不再把入选确认仓位打成 0U。
+  - 2026-04-28：旧模型里加入过低确认分保护。新比例模型中，这类保护由 `fundamental_ratio`、`pnl_adjustment` 和 `risk_multiplier` 共同承担；短期变化量不再直接抬高 burn 仓位。
+- [x] 将仓位调整通知切换到比例模型。
+  - 目标：通知不再只展示旧目标 U，而是展示 `fundamental_ratio`、`agent_cap_u`、`pnl_adjustment`、`risk_multiplier`、最终目标和建议变化。
+  - 2026-04-28：已部署。飞书通知会展示基本面分/比例/上限、P&L 调整、burn 进度、风险倍率和最终目标。
+  - 2026-04-28：已加入 `时间 / 信号 / 仓位层`，不再只展示单一 stage。
+  - 2026-04-29：飞书卡片已改为用户可读文案：`Live P&L` 改为“实时盈亏”，`Pot` 改为“官方跟单”，`Burn` 改为“回购预期”，并把阶段、风险和仓位来源翻译成中文业务状态。
+	  - 2026-04-29：飞书卡片进一步降噪：仓位调整卡只保留“动作、仓位变化、实时盈亏、当前价格、变化量、依据”。基本面分、内部阶段、详细仓位来源、回购进度、风险状态、持仓明细和授权对象等不直接改变当下操作的信息不再默认展示。
+	  - 2026-04-29：按决策价值补回“实时盈亏”和“当前价格”，并加入 5min / 15min / 1H 变化量。实时盈亏解释触发理由，当前价格用于下单参照，变化量用于判断短线方向；三者只展示，不进入评分。
+	  - 2026-04-29：修复通知口径不一致。Live P&L 阶梯通知也必须展示“实时盈亏、当前价格、5min / 15min / 1H 变化量、依据”，不能只让仓位调整卡展示这些字段。
+	  - 2026-04-29：飞书卡片的“实时盈亏”补充“盈亏构成”，同时展示已实现和未实现，避免只看总额时误判盈利质量。
+	  - 2026-04-30：变化量补充快照兜底。官网 Pot API 偶发把部分 Agent 返回为 `currentValue=0` 时，监控会跳过该 Agent 的即时 P&L 快照；变化量现在会继续从完整 Pot 快照和仓位建议快照中查找历史值，并取目标时间前后 5 分钟内最近的一条，而不是只取目标时间之前的数据。仍无足够历史时才显示“数据不足”。
+	  - 2026-05-01：全力转向 Live P&L 阶梯通知，暂停仓位调整卡。阶梯通知不再写“补仓 / 减仓 / 清仓”作为直接操作指令，而是展示“信号、动作、实时盈亏、盈亏构成、当前价格、变化量、阶梯变化、参考比例、仓位调整暂停说明”；目标仓位仍继续计算并保存快照，便于复盘和未来恢复。
+	- [x] 接入 Android 高优先级警报。
+  - 目标：手机免打扰或未盯着飞书时，关键风险仍能通过短促声音或通知朗读打断用户。
+  - 2026-04-30：Pushover 和公网 ntfy 均未通过手机端真实验证；当前采用飞书 @ 文本作为最小可靠强提醒。事件进入同一个数据库 outbox，普通卡片负责决策信息，`feishu_urgent` 短文本负责触发手机声音和弹窗。配置项已加入 `.env.example`。
+	- [x] 用真实数据校准函数参数和仓位分界。
+  - 目标：校准 `fundamental_ratio` 曲线、P&L signed function 的 scale、risk_multiplier 阈值、burn_progress 到仓位比例的映射，避免把函数参数固定成拍脑袋规则。
+  - 测试要求：每次改模型都要同时跑当前真实 Top10 数据和模拟数据；模拟必须覆盖普通回调、严重亏损、灾难亏损、小盈利、大盈利、快速修复、快速恶化和缺失数据。
+  - 2026-04-28：完成第一轮校准闭环。已运行 `npm run burn-model:test`、`npm run position-model:test`、`npm run expectation` 和服务器一次性 `node dist/watcher.js`；当前参数满足“Live P&L 完整计入、已实现额外增强、严重亏损压仓”的产品口径。后续只在真实市场结果证明不合理时再迭代参数。
+
+## 5. 暂不实现
+
+- [ ] 全自动买入。
+- [ ] 非测试钱包的无人值守自动卖出。
+- [ ] 复杂 Dashboard。
+- [ ] Kelly 仓位建议。
+- [ ] 把大户成本分析恢复为主线。
